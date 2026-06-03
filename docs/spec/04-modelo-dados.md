@@ -110,7 +110,7 @@ erDiagram
 | id_sala | int | Identificador da sala |
 | tipo | string | Tipo do conflito |
 | gravidade | string | Nivel de gravidade do conflito |
-| descricao | int | Descrição detalhado do conflito |
+| descricao | string | Descrição detalhado do conflito |
 | especialidade | string | Especialidade onde possui conflito |
 | dia_semana | string | Dia da semana |
 | turno | string | Turno (Manhã ou Tarde) |
