@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>My App – Painel de Ocupação</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --sidebar-bg: #3d3d3d;
+    --sidebar-text: #e8e8e8;
+    --sidebar-active: #4a4a4a;
+    --header-bg: #ffffff;
+    --content-bg: #eeeeee;
+    --card-bg: #ffffff;
+    --teal: #4e9e99;
+    --teal-dark: #3d8a85;
+    --red: #e05252;
+    --green: #3dab6e;
+    --yellow: #e0ac3f;
+    --blue: #4a7fcb;
+    --text-dark: #3a3a3a;
+    --text-mid: #666;
+    --text-light: #999;
+    --radius: 10px;
+    --shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--content-bg); display: flex; height: 100vh; overflow: hidden; color: var(--text-dark); }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 220px; min-width: 220px;
+    background: var(--sidebar-bg);
+    display: flex; flex-direction: column;
+    padding: 0;
+    user-select: none;
+  }
+  .sidebar-logo {
+    padding: 18px 20px 14px;
+    color: #fff;
+    font-size: 1.15rem;
+    font-weight: 700;
+    display: flex; align-items: center; gap: 10px;
+    letter-spacing: -.2px;
+  }
+  .sidebar-logo svg { opacity: .85; }
+  .sidebar-divider { height: 1px; background: rgba(255,255,255,.1); margin: 0 16px 8px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 20px;
+    color: var(--sidebar-text);
+    font-size: .88rem;
+    cursor: pointer;
+    border-radius: 6px;
+    margin: 2px 8px;
+    transition: background .15s;
+  }
+  .nav-item:hover { background: rgba(255,255,255,.07); }
+  .nav-item.active { background: var(--sidebar-active); }
+  .nav-item svg { opacity: .75; flex-shrink: 0; }
+
+  /* MAIN */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* HEADER */
+  .header {
+    background: var(--header-bg);
+    padding: 0 28px;
+    height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #e5e5e5;
+    flex-shrink: 0;
+  }
+  .header-title { font-size: .95rem; color: #555; font-weight: 500; }
+  .btn-login {
+    background: var(--teal); color: #fff;
+    border: none; border-radius: 7px;
+    padding: 8px 18px; font-size: .85rem; font-weight: 600;
+    cursor: pointer; display: flex; align-items: center; gap: 7px;
+    font-family: 'DM Sans', sans-serif;
+    transition: background .15s;
+  }
+  .btn-login:hover { background: var(--teal-dark); }
+
+  /* CONTENT */
+  .content { flex: 1; overflow-y: auto; padding: 24px 28px; }
+
+  /* PAGE TITLE */
+  .page-title { font-size: 1.1rem; font-weight: 700; color: var(--text-dark); margin-bottom: 18px; }
+
+  /* KPI CARDS */
+  .kpi-row { display: flex; gap: 16px; margin-bottom: 20px; }
+  .kpi-card {
+    flex: 1; background: var(--card-bg); border-radius: var(--radius);
+    padding: 16px 20px; box-shadow: var(--shadow);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .kpi-card .kpi-left {}
+  .kpi-card .kpi-label { font-size: .75rem; color: var(--text-mid); font-weight: 500; margin-bottom: 4px; }
+  .kpi-card .kpi-value { font-size: 1.9rem; font-weight: 700; color: var(--text-dark); line-height: 1; margin-bottom: 8px; font-family: 'DM Mono', monospace; }
+  .kpi-bar { height: 5px; border-radius: 99px; background: #e5e5e5; width: 120px; }
+  .kpi-bar-fill { height: 100%; border-radius: 99px; }
+  .kpi-icon { font-size: 2rem; opacity: .18; }
+
+  /* CHART + MAP ROW */
+  .mid-row { display: flex; gap: 16px; margin-bottom: 20px; }
+
+  /* BAR CHART CARD */
+  .chart-card {
+    flex: 1.2; background: var(--card-bg); border-radius: var(--radius);
+    padding: 18px 20px; box-shadow: var(--shadow);
+  }
+  .chart-card .card-title { font-size: .8rem; font-weight: 600; color: var(--text-mid); margin-bottom: 14px; text-transform: uppercase; letter-spacing: .5px; }
+  .chart-area { display: flex; align-items: flex-end; gap: 6px; height: 90px; }
+  .bar-group { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .bars { display: flex; gap: 3px; align-items: flex-end; }
+  .bar { width: 14px; border-radius: 3px 3px 0 0; transition: opacity .2s; }
+  .bar:hover { opacity: .75; }
+  .bar-label { font-size: .65rem; color: var(--text-light); margin-top: 4px; }
+  .chart-legend { display: flex; gap: 14px; margin-top: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: .7rem; color: var(--text-mid); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+  /* MAP CARD */
+  .map-card {
+    flex: 1.8; background: var(--card-bg); border-radius: var(--radius);
+    padding: 18px 20px; box-shadow: var(--shadow);
+  }
+  .map-card .card-title { font-size: .8rem; font-weight: 600; color: var(--text-mid); margin-bottom: 14px; text-transform: uppercase; letter-spacing: .5px; }
+  .floor-map {
+    background: #f5f5f5; border-radius: 8px; padding: 14px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .map-row { display: flex; gap: 5px; align-items: center; }
+  .map-label { font-size: .65rem; color: var(--text-light); width: 36px; flex-shrink: 0; }
+  .room-box {
+    width: 22px; height: 18px; border-radius: 3px;
+    cursor: pointer; transition: transform .15s, box-shadow .15s;
+    flex-shrink: 0;
+  }
+  .room-box:hover { transform: scale(1.15); box-shadow: 0 2px 6px rgba(0,0,0,.2); }
+  .room-box.ocupada { background: var(--red); }
+  .room-box.livre { background: var(--green); }
+  .room-box.reservada { background: var(--yellow); }
+  .room-box.manutencao { background: #bbb; }
+  .map-legend { display: flex; gap: 12px; margin-top: 10px; }
+  .map-legend-item { display: flex; align-items: center; gap: 5px; font-size: .68rem; color: var(--text-mid); }
+  .map-legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+  /* BOTTOM ROW */
+  .bottom-row { display: flex; gap: 16px; }
+
+  /* ROOM GRID */
+  .rooms-section { flex: 2; }
+  .rooms-section .section-title { font-size: .8rem; font-weight: 600; color: var(--text-mid); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+  .rooms-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .room-card {
+    background: var(--card-bg); border-radius: var(--radius);
+    padding: 14px 14px 12px; box-shadow: var(--shadow);
+    cursor: pointer; transition: box-shadow .2s, transform .15s;
+    border-top: 3px solid transparent;
+  }
+  .room-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.12); transform: translateY(-2px); }
+  .room-card.ocupada { border-top-color: var(--red); }
+  .room-card.livre { border-top-color: var(--green); }
+  .room-card.reservada { border-top-color: var(--yellow); }
+  .room-card.manutencao { border-top-color: #bbb; }
+  .room-card-title { font-size: .82rem; font-weight: 700; color: var(--text-dark); margin-bottom: 4px; }
+  .room-card-status { font-size: .72rem; font-weight: 600; margin-bottom: 6px; }
+  .room-card-status.ocupada { color: var(--red); }
+  .room-card-status.livre { color: var(--green); }
+  .room-card-status.reservada { color: var(--yellow); }
+  .room-card-status.manutencao { color: #999; }
+  .room-card-info { font-size: .72rem; color: var(--text-mid); line-height: 1.5; }
+  .room-timeline { margin-top: 10px; display: flex; align-items: center; justify-content: space-between; }
+  .timeline-bar { height: 4px; border-radius: 99px; flex: 1; background: #eee; overflow: hidden; margin-right: 8px; }
+  .timeline-fill { height: 100%; border-radius: 99px; }
+  .timeline-fill.ocupada { background: var(--red); }
+  .timeline-fill.livre { background: var(--green); }
+  .timeline-fill.reservada { background: var(--yellow); }
+  .timeline-fill.manutencao { background: #ccc; }
+  .timeline-time { font-size: .65rem; color: var(--text-light); font-family: 'DM Mono', monospace; }
+
+  /* TABLE SECTION */
+  .table-section { flex: 1.2; }
+  .table-section .section-title { font-size: .8rem; font-weight: 600; color: var(--text-mid); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+  .table-card { background: var(--card-bg); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { background: #f7f7f7; font-size: .72rem; font-weight: 600; color: var(--text-mid); text-transform: uppercase; letter-spacing: .4px; padding: 10px 14px; text-align: left; border-bottom: 1px solid #eee; }
+  tbody tr { border-bottom: 1px solid #f0f0f0; transition: background .12s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: #fafafa; }
+  tbody td { padding: 9px 14px; font-size: .76rem; color: var(--text-dark); }
+  .badge {
+    display: inline-block; padding: 3px 9px; border-radius: 99px;
+    font-size: .68rem; font-weight: 600;
+  }
+  .badge.ocupada { background: #fdeaea; color: var(--red); }
+  .badge.livre { background: #e6f7ee; color: var(--green); }
+  .badge.reservada { background: #fef7e6; color: var(--yellow); }
+  .badge.manutencao { background: #f0f0f0; color: #888; }
+
+  /* ── GRADES PAGE ─────────────────────────────────────── */
+  .page { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .page.active { display: flex; }
+
+  /* Grades layout: secondary sidebar + content area */
+  .grades-layout { display: flex; flex: 1; overflow: hidden; }
+
+  /* Secondary (specialty) sidebar */
+  .spec-sidebar {
+    width: 210px; min-width: 210px;
+    background: #f7f7f7;
+    border-right: 1px solid #e2e2e2;
+    display: flex; flex-direction: column;
+    overflow-y: auto;
+    padding: 16px 0;
+  }
+  .spec-sidebar-title {
+    font-size: .7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--text-light);
+    padding: 0 16px 10px; border-bottom: 1px solid #e8e8e8; margin-bottom: 8px;
+  }
+  .spec-btn {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer; border: none; background: transparent;
+    font-family: 'DM Sans', sans-serif;
+    font-size: .83rem; color: var(--text-mid);
+    text-align: left; width: 100%;
+    border-radius: 6px; margin: 1px 6px; width: calc(100% - 12px);
+    transition: background .14s, color .14s;
+    position: relative;
+  }
+  .spec-btn:hover { background: #ececec; color: var(--text-dark); }
+  .spec-btn.active { background: var(--teal); color: #fff; font-weight: 600; }
+  .spec-btn .spec-icon { font-size: 1.05rem; line-height: 1; flex-shrink: 0; }
+  .spec-btn .spec-count {
+    margin-left: auto; font-size: .68rem; font-weight: 700;
+    background: rgba(0,0,0,.1); border-radius: 99px;
+    padding: 2px 7px; flex-shrink: 0;
+  }
+  .spec-btn.active .spec-count { background: rgba(255,255,255,.25); }
+
+  /* Grades content area */
+  .grades-content { flex: 1; overflow-y: auto; padding: 24px 28px; }
+
+  /* Grades header row */
+  .grades-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .grades-title-block {}
+  .grades-title-block h2 {
+    font-size: 1.1rem; font-weight: 700; color: var(--text-dark); margin-bottom: 2px;
+  }
+  .grades-title-block p { font-size: .78rem; color: var(--text-mid); }
+
+  /* Date filter chips */
+  .date-chips { display: flex; gap: 6px; }
+  .date-chip {
+    padding: 6px 14px; border-radius: 99px; border: 1px solid #ddd;
+    font-size: .75rem; font-weight: 500; color: var(--text-mid);
+    cursor: pointer; background: #fff; font-family: 'DM Sans', sans-serif;
+    transition: all .14s;
+  }
+  .date-chip:hover { border-color: var(--teal); color: var(--teal); }
+  .date-chip.active { background: var(--teal); color: #fff; border-color: var(--teal); font-weight: 600; }
+
+  /* KPI strip for grades */
+  .grades-kpi { display: flex; gap: 12px; margin-bottom: 20px; }
+  .g-kpi {
+    flex: 1; background: var(--card-bg); border-radius: var(--radius);
+    padding: 12px 16px; box-shadow: var(--shadow);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .g-kpi-icon { font-size: 1.4rem; opacity: .8; }
+  .g-kpi-label { font-size: .7rem; color: var(--text-mid); margin-bottom: 2px; }
+  .g-kpi-value { font-size: 1.3rem; font-weight: 700; color: var(--text-dark); font-family: 'DM Mono', monospace; }
+
+  /* Schedule table card */
+  .schedule-card {
+    background: var(--card-bg); border-radius: var(--radius);
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .schedule-card-header {
+    padding: 14px 20px; border-bottom: 1px solid #f0f0f0;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .schedule-card-header span { font-size: .8rem; font-weight: 600; color: var(--text-mid); text-transform: uppercase; letter-spacing: .5px; }
+  .search-input {
+    border: 1px solid #e2e2e2; border-radius: 7px;
+    padding: 6px 12px; font-size: .78rem; font-family: 'DM Sans', sans-serif;
+    color: var(--text-dark); outline: none; width: 190px;
+    transition: border-color .15s;
+  }
+  .search-input:focus { border-color: var(--teal); }
+
+  .schedule-table { width: 100%; border-collapse: collapse; }
+  .schedule-table thead th {
+    background: #f9f9f9; font-size: .7rem; font-weight: 700; color: var(--text-mid);
+    text-transform: uppercase; letter-spacing: .45px;
+    padding: 11px 16px; text-align: left; border-bottom: 1px solid #eee;
+    white-space: nowrap;
+  }
+  .schedule-table tbody tr {
+    border-bottom: 1px solid #f3f3f3;
+    transition: background .12s;
+    cursor: default;
+  }
+  .schedule-table tbody tr:last-child { border-bottom: none; }
+  .schedule-table tbody tr:hover { background: #fafcfc; }
+  .schedule-table tbody td { padding: 11px 16px; font-size: .8rem; color: var(--text-dark); vertical-align: middle; }
+
+  /* Time column */
+  .td-time { font-family: 'DM Mono', monospace; font-size: .78rem; font-weight: 500; color: var(--text-dark); }
+  .td-time .time-duration { font-size: .66rem; color: var(--text-light); margin-top: 2px; }
+
+  /* Doctor cell */
+  .doctor-cell { display: flex; align-items: center; gap: 9px; }
+  .doctor-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .7rem; font-weight: 700; color: #fff; flex-shrink: 0;
+  }
+  .doctor-name { font-weight: 500; font-size: .8rem; }
+  .doctor-crm { font-size: .66rem; color: var(--text-light); }
+
+  /* Room badge */
+  .room-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #f0f4ff; color: var(--blue);
+    border-radius: 6px; padding: 4px 10px; font-size: .74rem; font-weight: 600;
+  }
+  .room-badge.bloco-a { background: #e8f4ff; color: #4a7fcb; }
+  .room-badge.bloco-b { background: #f0fff4; color: #3dab6e; }
+  .room-badge.bloco-c { background: #fff8e8; color: #c98a1a; }
+
+  /* Status badge */
+  .s-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 99px; font-size: .7rem; font-weight: 600;
+  }
+  .s-badge::before { content:'●'; font-size:.55rem; }
+  .s-badge.agendado { background: #e8f0ff; color: #4a7fcb; }
+  .s-badge.confirmado { background: #e6f9ef; color: #2d9d60; }
+  .s-badge.aguardando { background: #fff3e0; color: #c47a15; }
+  .s-badge.cancelado { background: #fdeaea; color: var(--red); text-decoration: line-through; }
+
+  /* Procedure type pill */
+  .proc-pill {
+    display: inline-block; padding: 3px 9px; border-radius: 4px;
+    font-size: .68rem; font-weight: 500;
+    background: #f0f0f0; color: #666;
+  }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: var(--text-light);
+  }
+  .empty-state .empty-icon { font-size: 2.5rem; margin-bottom: 12px; opacity: .4; }
+  .empty-state p { font-size: .85rem; }
+
+  /* ── END GRADES PAGE ──────────────────────────────────── */
+
+  /* MODAL */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal {
+    background: #fff; border-radius: 12px; padding: 28px 28px 22px;
+    width: 600px; max-width: 95vw; box-shadow: 0 8px 40px rgba(0,0,0,.18);
+    transform: translateY(12px); transition: transform .2s;
+  }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal h2 { font-size: 1.05rem; font-weight: 700; margin-bottom: 20px; color: var(--text-dark); }
+  .modal-cols { display: flex; gap: 24px; }
+  .modal-col { flex: 1; }
+  .modal-col h3 { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-mid); margin-bottom: 10px; }
+  .modal-col p { font-size: .8rem; color: var(--text-dark); line-height: 1.8; }
+  .status-badge {
+    display: inline-block; padding: 3px 12px; border-radius: 4px;
+    font-size: .75rem; font-weight: 600; background: #fdf3d0; color: #a07820;
+  }
+  .team-chip {
+    background: #f0f0f0; border-radius: 6px; padding: 5px 10px;
+    font-size: .78rem; color: var(--text-dark); margin-bottom: 6px;
+    display: flex; justify-content: space-between;
+  }
+  .team-chip span:last-child { color: var(--text-mid); }
+  .timeline-steps { list-style: none; margin-top: 8px; }
+  .timeline-steps li {
+    display: flex; align-items: center; gap: 8px;
+    font-size: .77rem; color: var(--text-mid); margin-bottom: 6px;
+  }
+  .tl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .tl-dot.done { background: var(--teal); }
+  .tl-dot.active { background: var(--blue); }
+  .tl-dot.pending { background: #ddd; }
+  .tl-time { font-family: 'DM Mono', monospace; font-size: .72rem; width: 38px; }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+  .btn-secondary {
+    padding: 9px 20px; border-radius: 7px; border: 1px solid #ddd;
+    background: #fff; color: var(--text-dark); font-size: .83rem; font-weight: 500;
+    cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background .12s;
+  }
+  .btn-secondary:hover { background: #f5f5f5; }
+  .btn-primary {
+    padding: 9px 20px; border-radius: 7px; border: none;
+    background: var(--blue); color: #fff; font-size: .83rem; font-weight: 600;
+    cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background .12s;
+  }
+  .btn-primary:hover { background: #3a6ab5; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+    My App
+  </div>
+  <div class="sidebar-divider"></div>
+  <div class="nav-item" onclick="showPage('painel',this)">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    Home
+  </div>
+  <div class="nav-item active" onclick="showPage('painel',this)">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+    Painel de Ocupação
+  </div>
+  <div class="nav-item" onclick="showPage('grades',this)">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+    Grades
+  </div>
+  <div class="nav-item">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+    Equipes
+  </div>
+  <div class="nav-item">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+    Exemplos
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- HEADER -->
+  <div class="header">
+    <span class="header-title">Painel de Ocupação em Tempo Real</span>
+    <button class="btn-login">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+      Login
+    </button>
+  </div>
+
+  <!-- PAGE: PAINEL -->
+  <div class="page active" id="page-painel">
+  <div class="content">
+
+    <!-- KPI ROW -->
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-left">
+          <div class="kpi-label">Total Salas Ocupadas</div>
+          <div class="kpi-value">21/45</div>
+          <div class="kpi-bar"><div class="kpi-bar-fill" style="width:47%;background:var(--red)"></div></div>
+        </div>
+        <div class="kpi-icon">🏥</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-left">
+          <div class="kpi-label">Salas Disponíveis (Próx. 2h)</div>
+          <div class="kpi-value">10</div>
+          <div class="kpi-bar"><div class="kpi-bar-fill" style="width:22%;background:var(--green)"></div></div>
+        </div>
+        <div class="kpi-icon">🛏️</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-left">
+          <div class="kpi-label">Procedimentos em Andamento</div>
+          <div class="kpi-value">18</div>
+          <div class="kpi-bar"><div class="kpi-bar-fill" style="width:40%;background:var(--yellow)"></div></div>
+        </div>
+        <div class="kpi-icon">📋</div>
+      </div>
+    </div>
+
+    <!-- MID ROW: CHART + MAP -->
+    <div class="mid-row">
+      <!-- BAR CHART -->
+      <div class="chart-card">
+        <div class="card-title">Taxa de Ocupação por Bloco</div>
+        <div class="chart-area">
+          <!-- Bloco A -->
+          <div class="bar-group">
+            <div class="bars">
+              <div class="bar" style="height:80px;background:var(--blue)"></div>
+              <div class="bar" style="height:55px;background:var(--red)"></div>
+              <div class="bar" style="height:40px;background:var(--green)"></div>
+            </div>
+            <div class="bar-label">Bloco A</div>
+          </div>
+          <div style="width:18px"></div>
+          <!-- Bloco B -->
+          <div class="bar-group">
+            <div class="bars">
+              <div class="bar" style="height:50px;background:var(--blue)"></div>
+              <div class="bar" style="height:75px;background:var(--red)"></div>
+              <div class="bar" style="height:30px;background:var(--green)"></div>
+            </div>
+            <div class="bar-label">Bloco B</div>
+          </div>
+          <div style="width:18px"></div>
+          <!-- Bloco C -->
+          <div class="bar-group">
+            <div class="bars">
+              <div class="bar" style="height:35px;background:var(--blue)"></div>
+              <div class="bar" style="height:20px;background:var(--red)"></div>
+              <div class="bar" style="height:55px;background:var(--green)"></div>
+            </div>
+            <div class="bar-label">Bloco C</div>
+          </div>
+        </div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div>Ocupadas</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>Em Proc.</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Livres</div>
+        </div>
+      </div>
+
+      <!-- FLOOR MAP -->
+      <div class="map-card">
+        <div class="card-title">Mapa de Salas – Hospital</div>
+        <div class="floor-map">
+          <div class="map-row">
+            <div class="map-label">Bloco A</div>
+            <div class="room-box ocupada" title="Sala 101 - Ocupada"></div>
+            <div class="room-box ocupada" title="Sala 102 - Ocupada"></div>
+            <div class="room-box livre" title="Sala 103 - Livre"></div>
+            <div class="room-box reservada" title="Sala 104 - Reservada"></div>
+            <div class="room-box ocupada" title="Sala 105 - Ocupada"></div>
+            <div class="room-box livre" title="Sala 106 - Livre"></div>
+            <div class="room-box manutencao" title="Sala 107 - Manutenção"></div>
+            <div class="room-box livre" title="Sala 108 - Livre"></div>
+            <div class="room-box ocupada" title="Sala 109 - Ocupada"></div>
+            <div class="room-box reservada" title="Sala 110 - Reservada"></div>
+          </div>
+          <div class="map-row">
+            <div class="map-label">Bloco B</div>
+            <div class="room-box livre" title="Sala 201 - Livre"></div>
+            <div class="room-box ocupada" title="Sala 202 - Ocupada"></div>
+            <div class="room-box ocupada" title="Sala 203 - Ocupada"></div>
+            <div class="room-box livre" title="Sala 204 - Livre"></div>
+            <div class="room-box ocupada" title="Sala 205 - Ocupada"></div>
+            <div class="room-box livre" title="Sala 206 - Livre"></div>
+            <div class="room-box reservada" title="Sala 207 - Reservada"></div>
+            <div class="room-box ocupada" title="Sala 208 - Ocupada"></div>
+            <div class="room-box livre" title="Sala 209 - Livre"></div>
+            <div class="room-box ocupada" title="Sala 210 - Ocupada"></div>
+          </div>
+          <div class="map-row">
+            <div class="map-label">Bloco C</div>
+            <div class="room-box ocupada" title="Sala 301 - Ocupada"></div>
+            <div class="room-box livre" title="Sala 302 - Livre"></div>
+            <div class="room-box reservada" title="Sala 303 - Reservada"></div>
+            <div class="room-box ocupada" title="Sala 304 - Ocupada"></div>
+            <div class="room-box livre" title="Sala 305 - Livre"></div>
+            <div class="room-box ocupada" title="Sala 306 - Ocupada"></div>
+            <div class="room-box manutencao" title="Sala 307 - Manutenção"></div>
+            <div class="room-box livre" title="Sala 308 - Livre"></div>
+            <div class="room-box ocupada" title="Sala 309 - Ocupada"></div>
+            <div class="room-box livre" title="Sala 310 - Livre"></div>
+          </div>
+        </div>
+        <div class="map-legend">
+          <div class="map-legend-item"><div class="map-legend-dot" style="background:var(--green)"></div>Livre</div>
+          <div class="map-legend-item"><div class="map-legend-dot" style="background:var(--red)"></div>Ocupada</div>
+          <div class="map-legend-item"><div class="map-legend-dot" style="background:var(--yellow)"></div>Reservada</div>
+          <div class="map-legend-item"><div class="map-legend-dot" style="background:#bbb"></div>Manutenção</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM ROW -->
+    <div class="bottom-row">
+      <!-- ROOM GRID -->
+      <div class="rooms-section">
+        <div class="section-title">Visão Geral das Salas</div>
+        <div class="rooms-grid">
+          <div class="room-card ocupada" onclick="openModal()">
+            <div class="room-card-title">Sala 101 – Bloco A</div>
+            <div class="room-card-status ocupada">● Ocupada</div>
+            <div class="room-card-info">Cirurgia Geral<br>Dr. Silva</div>
+            <div class="room-timeline">
+              <div class="timeline-bar"><div class="timeline-fill ocupada" style="width:60%"></div></div>
+              <div class="timeline-time">17:00</div>
+            </div>
+          </div>
+          <div class="room-card livre">
+            <div class="room-card-title">Sala 202 – Bloco B</div>
+            <div class="room-card-status livre">● Livre</div>
+            <div class="room-card-info">Próxima Reserva<br>14:30</div>
+            <div class="room-timeline">
+              <div class="timeline-bar"><div class="timeline-fill livre" style="width:30%"></div></div>
+              <div class="timeline-time">14:30</div>
+            </div>
+          </div>
+          <div class="room-card ocupada">
+            <div class="room-card-title">Sala 305 – Bloco C</div>
+            <div class="room-card-status ocupada">● Ocupada</div>
+            <div class="room-card-info">Recup. Pós-Anestésica<br>Dr. Oliveira</div>
+            <div class="room-timeline">
+              <div class="timeline-bar"><div class="timeline-fill ocupada" style="width:75%"></div></div>
+              <div class="timeline-time">18:00</div>
+            </div>
+          </div>
+          <div class="room-card manutencao">
+            <div class="room-card-title">Sala 410 – Bloco A</div>
+            <div class="room-card-status manutencao">● Manutenção</div>
+            <div class="room-card-info">Até 17:00</div>
+            <div class="room-timeline">
+              <div class="timeline-bar"><div class="timeline-fill manutencao" style="width:45%"></div></div>
+              <div class="timeline-time">17:00</div>
+            </div>
+          </div>
+          <div class="room-card ocupada">
+            <div class="room-card-title">Sala 101 – Bloco A</div>
+            <div class="room-card-status ocupada">● Ocupada</div>
+            <div class="room-card-info">Cirurgia Geral<br>Dr. Silva</div>
+            <div class="room-timeline">
+              <div class="timeline-bar"><div class="timeline-fill ocupada" style="width:55%"></div></div>
+              <div class="timeline-time">17:00</div>
+            </div>
+          </div>
+          <div class="room-card livre">
+            <div class="room-card-title">Sala 202 – Bloco B</div>
+            <div class="room-card-status livre">● Livre</div>
+            <div class="room-card-info">Próxima Reserva<br>14:30</div>
+            <div class="room-timeline">
+              <div class="timeline-bar"><div class="timeline-fill livre" style="width:25%"></div></div>
+              <div class="timeline-time">14:30</div>
+            </div>
+          </div>
+          <div class="room-card ocupada">
+            <div class="room-card-title">Sala 305 – Bloco C</div>
+            <div class="room-card-status ocupada">● Ocupada</div>
+            <div class="room-card-info">Cirurgia Geral<br>Dr. Oliveira</div>
+            <div class="room-timeline">
+              <div class="timeline-bar"><div class="timeline-fill ocupada" style="width:65%"></div></div>
+              <div class="timeline-time">17:00</div>
+            </div>
+          </div>
+          <div class="room-card manutencao">
+            <div class="room-card-title">Sala 410 – Bloco A</div>
+            <div class="room-card-status manutencao">● Manutenção</div>
+            <div class="room-card-info">Próxima Reserva<br>14:30</div>
+            <div class="room-timeline">
+              <div class="timeline-bar"><div class="timeline-fill manutencao" style="width:35%"></div></div>
+              <div class="timeline-time">17:00</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLE -->
+      <div class="table-section">
+        <div class="section-title">Detalhes de Ocupação Atual</div>
+        <div class="table-card">
+          <table>
+            <thead>
+              <tr>
+                <th>Sala</th>
+                <th>Status</th>
+                <th>ID Paciente</th>
+                <th>Médico</th>
+                <th>Procedimento</th>
+                <th>Tempo Restante</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Sala 101 (Bloco A)</td>
+                <td><span class="badge ocupada">Ocupada</span></td>
+                <td style="font-family:'DM Mono',monospace;font-size:.72rem">M*******</td>
+                <td>Dr. Silva</td>
+                <td>Cirurgia Geral</td>
+                <td style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--red)">45 min</td>
+              </tr>
+              <tr>
+                <td>Sala 305 (Bloco C)</td>
+                <td><span class="badge manutencao">Manutenção</span></td>
+                <td style="font-family:'DM Mono',monospace;font-size:.72rem">Prev. 16:30</td>
+                <td>Dr. Oliveira</td>
+                <td>Cirurgia Geral</td>
+                <td style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--yellow)">33 min</td>
+              </tr>
+              <tr>
+                <td>Sala 202 (Bloco B)</td>
+                <td><span class="badge livre">Livre</span></td>
+                <td style="font-family:'DM Mono',monospace;font-size:.72rem">—</td>
+                <td>Dr. Silva</td>
+                <td>Cirurgia Geral</td>
+                <td style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--green)">15 min</td>
+              </tr>
+              <tr>
+                <td>Sala 410 (Bloco A)</td>
+                <td><span class="badge manutencao">Manutenção</span></td>
+                <td style="font-family:'DM Mono',monospace;font-size:.72rem">—</td>
+                <td>—</td>
+                <td>—</td>
+                <td style="font-family:'DM Mono',monospace;font-size:.72rem;color:#999">Até 17:00</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end content -->
+  </div><!-- end page-painel -->
+
+  <!-- PAGE: GRADES -->
+  <div class="page" id="page-grades">
+    <div class="grades-layout">
+
+      <!-- SPECIALTY SIDEBAR -->
+      <div class="spec-sidebar">
+        <div class="spec-sidebar-title">Especialidades</div>
+
+        <button class="spec-btn active" onclick="selectSpec(this,'Dermatologia')" data-spec="Dermatologia">
+          <span class="spec-icon">🧴</span> Dermatologia
+          <span class="spec-count">8</span>
+        </button>
+        <button class="spec-btn" onclick="selectSpec(this,'Otorrinolaringologia')" data-spec="Otorrinolaringologia">
+          <span class="spec-icon">👂</span> Otorrino
+          <span class="spec-count">6</span>
+        </button>
+        <button class="spec-btn" onclick="selectSpec(this,'Cardiologia')" data-spec="Cardiologia">
+          <span class="spec-icon">❤️</span> Cardiologia
+          <span class="spec-count">10</span>
+        </button>
+        <button class="spec-btn" onclick="selectSpec(this,'Ortopedia')" data-spec="Ortopedia">
+          <span class="spec-icon">🦴</span> Ortopedia
+          <span class="spec-count">7</span>
+        </button>
+        <button class="spec-btn" onclick="selectSpec(this,'Neurologia')" data-spec="Neurologia">
+          <span class="spec-icon">🧠</span> Neurologia
+          <span class="spec-count">5</span>
+        </button>
+        <button class="spec-btn" onclick="selectSpec(this,'Oftalmologia')" data-spec="Oftalmologia">
+          <span class="spec-icon">👁️</span> Oftalmologia
+          <span class="spec-count">9</span>
+        </button>
+        <button class="spec-btn" onclick="selectSpec(this,'Pediatria')" data-spec="Pediatria">
+          <span class="spec-icon">🧒</span> Pediatria
+          <span class="spec-count">11</span>
+        </button>
+        <button class="spec-btn" onclick="selectSpec(this,'Ginecologia')" data-spec="Ginecologia">
+          <span class="spec-icon">🌸</span> Ginecologia
+          <span class="spec-count">6</span>
+        </button>
+        <button class="spec-btn" onclick="selectSpec(this,'Urologia')" data-spec="Urologia">
+          <span class="spec-icon">🏥</span> Urologia
+          <span class="spec-count">4</span>
+        </button>
+        <button class="spec-btn" onclick="selectSpec(this,'Endocrinologia')" data-spec="Endocrinologia">
+          <span class="spec-icon">⚗️</span> Endocrinologia
+          <span class="spec-count">5</span>
+        </button>
+      </div>
+
+      <!-- GRADES CONTENT -->
+      <div class="grades-content">
+
+        <!-- Header -->
+        <div class="grades-header">
+          <div class="grades-title-block">
+            <h2 id="grades-title">Grade – Dermatologia</h2>
+            <p id="grades-subtitle">Quinta-feira, 14 de Maio de 2026 · 8 atendimentos agendados</p>
+          </div>
+          <div class="date-chips">
+            <button class="date-chip active" onclick="selectDate(this,'Hoje')">Hoje</button>
+            <button class="date-chip" onclick="selectDate(this,'Amanhã')">Amanhã</button>
+            <button class="date-chip" onclick="selectDate(this,'Semana')">Esta Semana</button>
+          </div>
+        </div>
+
+        <!-- KPI strip -->
+        <div class="grades-kpi">
+          <div class="g-kpi">
+            <div class="g-kpi-icon">📅</div>
+            <div>
+              <div class="g-kpi-label">Total Agendado</div>
+              <div class="g-kpi-value" id="g-total">8</div>
+            </div>
+          </div>
+          <div class="g-kpi">
+            <div class="g-kpi-icon">✅</div>
+            <div>
+              <div class="g-kpi-label">Confirmados</div>
+              <div class="g-kpi-value" id="g-confirmados">5</div>
+            </div>
+          </div>
+          <div class="g-kpi">
+            <div class="g-kpi-icon">⏳</div>
+            <div>
+              <div class="g-kpi-label">Aguardando</div>
+              <div class="g-kpi-value" id="g-aguardando">2</div>
+            </div>
+          </div>
+          <div class="g-kpi">
+            <div class="g-kpi-icon">🚫</div>
+            <div>
+              <div class="g-kpi-label">Cancelados</div>
+              <div class="g-kpi-value" id="g-cancelados">1</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Schedule table -->
+        <div class="schedule-card">
+          <div class="schedule-card-header">
+            <span id="table-spec-label">Dermatologia</span>
+            <input class="search-input" type="text" placeholder="🔍  Buscar médico ou sala..." oninput="filterTable(this.value)" />
+          </div>
+          <table class="schedule-table" id="scheduleTable">
+            <thead>
+              <tr>
+                <th>Horário</th>
+                <th>Paciente (ID)</th>
+                <th>Tipo de Consulta</th>
+                <th>Médico Responsável</th>
+                <th>Sala</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="scheduleBody">
+            </tbody>
+          </table>
+        </div>
+
+      </div><!-- end grades-content -->
+    </div><!-- end grades-layout -->
+  </div><!-- end page-grades -->
+
+</div><!-- end main -->
+
+<!-- MODAL: Detalhes da Alocação -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
+  <div class="modal">
+    <h2>Detalhes da Alocação – Sala 101</h2>
+    <div class="modal-cols">
+      <!-- Informações do Procedimento -->
+      <div class="modal-col">
+        <h3>Informações do Procedimento</h3>
+        <p>Tipo: Cirurgia Geral<br>Início: 10:00<br>Previsto: 12:00<br>
+        Status: <span class="status-badge">Em Andamento</span></p>
+
+        <h3 style="margin-top:16px">Paciente & Equipamento</h3>
+        <p>ID: ****3456<br><br>
+        <strong style="font-size:.74rem;text-transform:uppercase;letter-spacing:.3px;color:var(--text-mid)">Equipamentos em Uso</strong><br>
+        • Ventilador – OK</p>
+
+        <ul class="timeline-steps" style="margin-top:12px">
+          <li><div class="tl-dot done"></div><div class="tl-time">10:00</div>Admissão</li>
+          <li><div class="tl-dot active"></div><div class="tl-time">10:00</div>Início</li>
+          <li><div class="tl-dot pending"></div><div class="tl-time">12:00</div>Previsto</li>
+        </ul>
+      </div>
+
+      <!-- Equipe Vinculada -->
+      <div class="modal-col">
+        <h3>Equipe Vinculada</h3>
+        <div class="team-chip"><span>Cirurgião Principal</span><span>Dr. Silva</span></div>
+        <div class="team-chip"><span>Anestesista</span><span>Dr. Souza</span></div>
+        <div class="team-chip"><span>Enfermeira Chefe</span><span>Maria L.</span></div>
+
+        <h3 style="margin-top:16px">Anotações</h3>
+        <div style="background:#f7f7f7;border-radius:6px;padding:10px 12px;font-size:.76rem;color:var(--text-mid);line-height:1.6">
+          <strong style="color:var(--text-dark)">Ventilador</strong><br>
+          Status: <span style="color:var(--green);font-weight:600">OK</span><br><br>
+          Procedimento decorrendo conforme planejado. Sem intercorrências registradas até o momento.
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal()">Fechar</button>
+      <button class="btn-primary">Modificar Alocação</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── PAGE SWITCHING ─────────────────────────────────────
+  function showPage(page, navEl) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    if (navEl) navEl.classList.add('active');
+    document.querySelector('.header-title').textContent =
+      page === 'grades' ? 'Grades de Atendimento' : 'Painel de Ocupação em Tempo Real';
+  }
+
+  // ── SPECIALTY DATA ──────────────────────────────────────
+  const avatarColors = ['#4a7fcb','#3dab6e','#e05252','#e0ac3f','#9b59b6','#16a085','#e67e22','#2980b9'];
+  function initials(name){ return name.split(' ').filter((_,i,a)=>i===0||i===a.length-1).map(n=>n[0]).join('').toUpperCase(); }
+
+  const specData = {
+    'Dermatologia': [
+      { time:'07:30', dur:'30min', patient:'P-#4821', type:'Consulta Inicial',       doctor:'Dra. Camila Rocha',    crm:'CRM 54321', sala:'Sala 112', bloco:'bloco-a', status:'confirmado' },
+      { time:'08:00', dur:'45min', patient:'P-#3317', type:'Retorno',                doctor:'Dr. Felipe Andrade',   crm:'CRM 67890', sala:'Sala 112', bloco:'bloco-a', status:'confirmado' },
+      { time:'08:45', dur:'30min', patient:'P-#5502', type:'Procedimento',           doctor:'Dra. Camila Rocha',    crm:'CRM 54321', sala:'Sala 115', bloco:'bloco-a', status:'aguardando' },
+      { time:'09:15', dur:'30min', patient:'P-#2201', type:'Consulta Inicial',       doctor:'Dr. Felipe Andrade',   crm:'CRM 67890', sala:'Sala 112', bloco:'bloco-a', status:'confirmado' },
+      { time:'10:00', dur:'30min', patient:'P-#6630', type:'Retorno',                doctor:'Dra. Ana Ferreira',    crm:'CRM 11223', sala:'Sala 210', bloco:'bloco-b', status:'agendado'   },
+      { time:'10:30', dur:'45min', patient:'P-#7781', type:'Biopsia',                doctor:'Dra. Ana Ferreira',    crm:'CRM 11223', sala:'Sala 210', bloco:'bloco-b', status:'confirmado' },
+      { time:'11:15', dur:'30min', patient:'P-#9902', type:'Retorno',                doctor:'Dr. Felipe Andrade',   crm:'CRM 67890', sala:'Sala 112', bloco:'bloco-a', status:'aguardando' },
+      { time:'13:00', dur:'30min', patient:'P-#1145', type:'Consulta Inicial',       doctor:'Dra. Camila Rocha',    crm:'CRM 54321', sala:'Sala 112', bloco:'bloco-a', status:'cancelado'  },
+    ],
+    'Otorrinolaringologia': [
+      { time:'07:00', dur:'40min', patient:'P-#3301', type:'Audiometria',            doctor:'Dr. Marcos Teixeira',  crm:'CRM 22334', sala:'Sala 305', bloco:'bloco-c', status:'confirmado' },
+      { time:'07:40', dur:'30min', patient:'P-#4420', type:'Consulta Inicial',       doctor:'Dr. Marcos Teixeira',  crm:'CRM 22334', sala:'Sala 305', bloco:'bloco-c', status:'confirmado' },
+      { time:'08:10', dur:'30min', patient:'P-#5541', type:'Retorno',                doctor:'Dra. Juliana Costa',   crm:'CRM 33445', sala:'Sala 308', bloco:'bloco-c', status:'aguardando' },
+      { time:'09:00', dur:'60min', patient:'P-#6612', type:'Procedimento Cirúrgico', doctor:'Dr. Marcos Teixeira',  crm:'CRM 22334', sala:'Sala 310', bloco:'bloco-c', status:'confirmado' },
+      { time:'10:30', dur:'30min', patient:'P-#8831', type:'Retorno',                doctor:'Dra. Juliana Costa',   crm:'CRM 33445', sala:'Sala 305', bloco:'bloco-c', status:'agendado'   },
+      { time:'11:00', dur:'30min', patient:'P-#9950', type:'Consulta Inicial',       doctor:'Dr. Marcos Teixeira',  crm:'CRM 22334', sala:'Sala 308', bloco:'bloco-c', status:'cancelado'  },
+    ],
+    'Cardiologia': [
+      { time:'07:00', dur:'60min', patient:'P-#1120', type:'Ecocardiograma',         doctor:'Dr. Roberto Alves',    crm:'CRM 44556', sala:'Sala 201', bloco:'bloco-b', status:'confirmado' },
+      { time:'08:00', dur:'30min', patient:'P-#2231', type:'Consulta Inicial',       doctor:'Dra. Patrícia Lima',   crm:'CRM 55667', sala:'Sala 203', bloco:'bloco-b', status:'confirmado' },
+      { time:'08:30', dur:'45min', patient:'P-#3342', type:'Teste Ergométrico',      doctor:'Dr. Roberto Alves',    crm:'CRM 44556', sala:'Sala 205', bloco:'bloco-b', status:'confirmado' },
+      { time:'09:15', dur:'30min', patient:'P-#4453', type:'Retorno',                doctor:'Dra. Patrícia Lima',   crm:'CRM 55667', sala:'Sala 203', bloco:'bloco-b', status:'aguardando' },
+      { time:'09:45', dur:'30min', patient:'P-#5564', type:'Retorno',                doctor:'Dr. Roberto Alves',    crm:'CRM 44556', sala:'Sala 201', bloco:'bloco-b', status:'confirmado' },
+      { time:'10:15', dur:'60min', patient:'P-#6675', type:'Holter 24h',             doctor:'Dra. Patrícia Lima',   crm:'CRM 55667', sala:'Sala 207', bloco:'bloco-b', status:'agendado'   },
+      { time:'11:15', dur:'30min', patient:'P-#7786', type:'Consulta Inicial',       doctor:'Dr. Roberto Alves',    crm:'CRM 44556', sala:'Sala 201', bloco:'bloco-b', status:'agendado'   },
+      { time:'13:00', dur:'30min', patient:'P-#8897', type:'Retorno',                doctor:'Dra. Patrícia Lima',   crm:'CRM 55667', sala:'Sala 203', bloco:'bloco-b', status:'aguardando' },
+      { time:'13:30', dur:'30min', patient:'P-#9908', type:'Consulta Inicial',       doctor:'Dr. Roberto Alves',    crm:'CRM 44556', sala:'Sala 203', bloco:'bloco-b', status:'cancelado'  },
+      { time:'14:00', dur:'45min', patient:'P-#1019', type:'Ecocardiograma',         doctor:'Dra. Patrícia Lima',   crm:'CRM 55667', sala:'Sala 205', bloco:'bloco-b', status:'agendado'   },
+    ],
+    'Ortopedia': [
+      { time:'07:30', dur:'45min', patient:'P-#2210', type:'Avaliação Ortopédica',   doctor:'Dr. Henrique Souza',   crm:'CRM 66778', sala:'Sala 102', bloco:'bloco-a', status:'confirmado' },
+      { time:'08:15', dur:'30min', patient:'P-#3321', type:'Retorno Pós-Op',         doctor:'Dr. Henrique Souza',   crm:'CRM 66778', sala:'Sala 102', bloco:'bloco-a', status:'confirmado' },
+      { time:'08:45', dur:'60min', patient:'P-#4432', type:'Infiltração',            doctor:'Dra. Sandra Mello',    crm:'CRM 77889', sala:'Sala 104', bloco:'bloco-a', status:'aguardando' },
+      { time:'09:45', dur:'30min', patient:'P-#5543', type:'Consulta Inicial',       doctor:'Dr. Henrique Souza',   crm:'CRM 66778', sala:'Sala 102', bloco:'bloco-a', status:'confirmado' },
+      { time:'10:15', dur:'30min', patient:'P-#6654', type:'Retorno',                doctor:'Dra. Sandra Mello',    crm:'CRM 77889', sala:'Sala 104', bloco:'bloco-a', status:'agendado'   },
+      { time:'10:45', dur:'45min', patient:'P-#7765', type:'Avaliação Ortopédica',   doctor:'Dr. Henrique Souza',   crm:'CRM 66778', sala:'Sala 102', bloco:'bloco-a', status:'cancelado'  },
+      { time:'13:00', dur:'30min', patient:'P-#8876', type:'Retorno Pós-Op',         doctor:'Dra. Sandra Mello',    crm:'CRM 77889', sala:'Sala 104', bloco:'bloco-a', status:'agendado'   },
+    ],
+    'Neurologia': [
+      { time:'08:00', dur:'60min', patient:'P-#1130', type:'Consulta Inicial',       doctor:'Dr. Leandro Nunes',    crm:'CRM 88990', sala:'Sala 207', bloco:'bloco-b', status:'confirmado' },
+      { time:'09:00', dur:'30min', patient:'P-#2241', type:'Retorno',                doctor:'Dr. Leandro Nunes',    crm:'CRM 88990', sala:'Sala 207', bloco:'bloco-b', status:'confirmado' },
+      { time:'09:30', dur:'60min', patient:'P-#3352', type:'EEG',                    doctor:'Dra. Fernanda Dias',   crm:'CRM 99001', sala:'Sala 209', bloco:'bloco-b', status:'aguardando' },
+      { time:'10:30', dur:'30min', patient:'P-#4463', type:'Retorno',                doctor:'Dr. Leandro Nunes',    crm:'CRM 88990', sala:'Sala 207', bloco:'bloco-b', status:'agendado'   },
+      { time:'11:00', dur:'30min', patient:'P-#5574', type:'Consulta Inicial',       doctor:'Dra. Fernanda Dias',   crm:'CRM 99001', sala:'Sala 209', bloco:'bloco-b', status:'cancelado'  },
+    ],
+    'Oftalmologia': [
+      { time:'07:00', dur:'30min', patient:'P-#6610', type:'Consulta Inicial',       doctor:'Dr. Gustavo Pires',    crm:'CRM 10112', sala:'Sala 301', bloco:'bloco-c', status:'confirmado' },
+      { time:'07:30', dur:'30min', patient:'P-#7721', type:'Retorno',                doctor:'Dra. Beatriz Almeida', crm:'CRM 11223', sala:'Sala 303', bloco:'bloco-c', status:'confirmado' },
+      { time:'08:00', dur:'45min', patient:'P-#8832', type:'Mapeamento de Retina',   doctor:'Dr. Gustavo Pires',    crm:'CRM 10112', sala:'Sala 301', bloco:'bloco-c', status:'confirmado' },
+      { time:'08:45', dur:'30min', patient:'P-#9943', type:'Tonometria',             doctor:'Dra. Beatriz Almeida', crm:'CRM 11223', sala:'Sala 303', bloco:'bloco-c', status:'aguardando' },
+      { time:'09:15', dur:'30min', patient:'P-#1054', type:'Retorno',                doctor:'Dr. Gustavo Pires',    crm:'CRM 10112', sala:'Sala 301', bloco:'bloco-c', status:'confirmado' },
+      { time:'09:45', dur:'30min', patient:'P-#2165', type:'Consulta Inicial',       doctor:'Dra. Beatriz Almeida', crm:'CRM 11223', sala:'Sala 303', bloco:'bloco-c', status:'agendado'   },
+      { time:'10:15', dur:'45min', patient:'P-#3276', type:'Cirurgia de Catarata',   doctor:'Dr. Gustavo Pires',    crm:'CRM 10112', sala:'Sala 305', bloco:'bloco-c', status:'confirmado' },
+      { time:'11:00', dur:'30min', patient:'P-#4387', type:'Retorno',                doctor:'Dra. Beatriz Almeida', crm:'CRM 11223', sala:'Sala 303', bloco:'bloco-c', status:'cancelado'  },
+      { time:'13:30', dur:'30min', patient:'P-#5498', type:'Consulta Inicial',       doctor:'Dr. Gustavo Pires',    crm:'CRM 10112', sala:'Sala 301', bloco:'bloco-c', status:'agendado'   },
+    ],
+    'Pediatria': [
+      { time:'07:00', dur:'30min', patient:'P-#6509', type:'Puericultura',           doctor:'Dra. Mônica Ramos',    crm:'CRM 12334', sala:'Sala 108', bloco:'bloco-a', status:'confirmado' },
+      { time:'07:30', dur:'30min', patient:'P-#7610', type:'Consulta Inicial',       doctor:'Dr. Cláudio Barros',   crm:'CRM 23445', sala:'Sala 106', bloco:'bloco-a', status:'confirmado' },
+      { time:'08:00', dur:'30min', patient:'P-#8721', type:'Retorno',                doctor:'Dra. Mônica Ramos',    crm:'CRM 12334', sala:'Sala 108', bloco:'bloco-a', status:'confirmado' },
+      { time:'08:30', dur:'30min', patient:'P-#9832', type:'Vacinação',              doctor:'Dr. Cláudio Barros',   crm:'CRM 23445', sala:'Sala 106', bloco:'bloco-a', status:'aguardando' },
+      { time:'09:00', dur:'30min', patient:'P-#1043', type:'Puericultura',           doctor:'Dra. Mônica Ramos',    crm:'CRM 12334', sala:'Sala 108', bloco:'bloco-a', status:'confirmado' },
+      { time:'09:30', dur:'30min', patient:'P-#2154', type:'Retorno',                doctor:'Dr. Cláudio Barros',   crm:'CRM 23445', sala:'Sala 106', bloco:'bloco-a', status:'agendado'   },
+      { time:'10:00', dur:'30min', patient:'P-#3265', type:'Consulta Inicial',       doctor:'Dra. Mônica Ramos',    crm:'CRM 12334', sala:'Sala 108', bloco:'bloco-a', status:'agendado'   },
+      { time:'10:30', dur:'30min', patient:'P-#4376', type:'Vacinação',              doctor:'Dr. Cláudio Barros',   crm:'CRM 23445', sala:'Sala 106', bloco:'bloco-a', status:'aguardando' },
+      { time:'11:00', dur:'30min', patient:'P-#5487', type:'Puericultura',           doctor:'Dra. Mônica Ramos',    crm:'CRM 12334', sala:'Sala 108', bloco:'bloco-a', status:'cancelado'  },
+      { time:'13:00', dur:'30min', patient:'P-#6598', type:'Retorno',                doctor:'Dr. Cláudio Barros',   crm:'CRM 23445', sala:'Sala 106', bloco:'bloco-a', status:'agendado'   },
+      { time:'13:30', dur:'30min', patient:'P-#7609', type:'Consulta Inicial',       doctor:'Dra. Mônica Ramos',    crm:'CRM 12334', sala:'Sala 108', bloco:'bloco-a', status:'agendado'   },
+    ],
+    'Ginecologia': [
+      { time:'07:30', dur:'30min', patient:'P-#8710', type:'Pré-Natal',              doctor:'Dra. Viviane Lopes',   crm:'CRM 34556', sala:'Sala 213', bloco:'bloco-b', status:'confirmado' },
+      { time:'08:00', dur:'30min', patient:'P-#9821', type:'Consulta Inicial',       doctor:'Dra. Viviane Lopes',   crm:'CRM 34556', sala:'Sala 213', bloco:'bloco-b', status:'confirmado' },
+      { time:'08:30', dur:'45min', patient:'P-#1032', type:'Colposcopia',            doctor:'Dr. André Correia',    crm:'CRM 45667', sala:'Sala 215', bloco:'bloco-b', status:'aguardando' },
+      { time:'09:15', dur:'30min', patient:'P-#2143', type:'Pré-Natal',              doctor:'Dra. Viviane Lopes',   crm:'CRM 34556', sala:'Sala 213', bloco:'bloco-b', status:'confirmado' },
+      { time:'09:45', dur:'30min', patient:'P-#3254', type:'Retorno',                doctor:'Dr. André Correia',    crm:'CRM 45667', sala:'Sala 215', bloco:'bloco-b', status:'agendado'   },
+      { time:'10:15', dur:'30min', patient:'P-#4365', type:'Consulta Inicial',       doctor:'Dra. Viviane Lopes',   crm:'CRM 34556', sala:'Sala 213', bloco:'bloco-b', status:'cancelado'  },
+    ],
+    'Urologia': [
+      { time:'08:00', dur:'45min', patient:'P-#5410', type:'Consulta Inicial',       doctor:'Dr. Sérgio Monteiro',  crm:'CRM 56778', sala:'Sala 107', bloco:'bloco-a', status:'confirmado' },
+      { time:'08:45', dur:'30min', patient:'P-#6521', type:'Retorno',                doctor:'Dr. Sérgio Monteiro',  crm:'CRM 56778', sala:'Sala 107', bloco:'bloco-a', status:'confirmado' },
+      { time:'09:15', dur:'60min', patient:'P-#7632', type:'Urodinâmica',            doctor:'Dr. Sérgio Monteiro',  crm:'CRM 56778', sala:'Sala 109', bloco:'bloco-a', status:'aguardando' },
+      { time:'10:15', dur:'30min', patient:'P-#8743', type:'Retorno',                doctor:'Dr. Sérgio Monteiro',  crm:'CRM 56778', sala:'Sala 107', bloco:'bloco-a', status:'agendado'   },
+    ],
+    'Endocrinologia': [
+      { time:'07:30', dur:'30min', patient:'P-#9810', type:'Consulta Inicial',       doctor:'Dra. Carla Menezes',   crm:'CRM 67889', sala:'Sala 211', bloco:'bloco-b', status:'confirmado' },
+      { time:'08:00', dur:'30min', patient:'P-#1021', type:'Retorno',                doctor:'Dra. Carla Menezes',   crm:'CRM 67889', sala:'Sala 211', bloco:'bloco-b', status:'confirmado' },
+      { time:'08:30', dur:'45min', patient:'P-#2132', type:'Curva Glicêmica',        doctor:'Dra. Carla Menezes',   crm:'CRM 67889', sala:'Sala 211', bloco:'bloco-b', status:'aguardando' },
+      { time:'09:15', dur:'30min', patient:'P-#3243', type:'Retorno',                doctor:'Dra. Carla Menezes',   crm:'CRM 67889', sala:'Sala 211', bloco:'bloco-b', status:'agendado'   },
+      { time:'09:45', dur:'30min', patient:'P-#4354', type:'Consulta Inicial',       doctor:'Dra. Carla Menezes',   crm:'CRM 67889', sala:'Sala 211', bloco:'bloco-b', status:'cancelado'  },
+    ],
+  };
+
+  let currentSpec = 'Dermatologia';
+  let allRows = [];
+
+  function renderTable(rows) {
+    const tbody = document.getElementById('scheduleBody');
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">📭</div><p>Nenhum atendimento encontrado.</p></div></td></tr>`;
+      return;
+    }
+    const statusLabel = { confirmado:'Confirmado', aguardando:'Aguardando', agendado:'Agendado', cancelado:'Cancelado' };
+    tbody.innerHTML = rows.map((r, i) => {
+      const color = avatarColors[i % avatarColors.length];
+      return `<tr>
+        <td class="td-time">
+          ${r.time}
+          <div class="time-duration">${r.dur}</div>
+        </td>
+        <td><span style="font-family:'DM Mono',monospace;font-size:.76rem">${r.patient}</span></td>
+        <td><span class="proc-pill">${r.type}</span></td>
+        <td>
+          <div class="doctor-cell">
+            <div class="doctor-avatar" style="background:${color}">${initials(r.doctor)}</div>
+            <div>
+              <div class="doctor-name">${r.doctor}</div>
+              <div class="doctor-crm">${r.crm}</div>
+            </div>
+          </div>
+        </td>
+        <td><span class="room-badge ${r.bloco}">${r.sala}</span></td>
+        <td><span class="s-badge ${r.status}">${statusLabel[r.status]}</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function updateKpis(rows) {
+    document.getElementById('g-total').textContent = rows.length;
+    document.getElementById('g-confirmados').textContent = rows.filter(r=>r.status==='confirmado').length;
+    document.getElementById('g-aguardando').textContent = rows.filter(r=>r.status==='aguardando').length;
+    document.getElementById('g-cancelados').textContent = rows.filter(r=>r.status==='cancelado').length;
+  }
+
+  function selectSpec(btn, spec) {
+    document.querySelectorAll('.spec-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentSpec = spec;
+    allRows = specData[spec] || [];
+    document.getElementById('grades-title').textContent = 'Grade – ' + spec;
+    document.getElementById('grades-subtitle').textContent =
+      'Quinta-feira, 14 de Maio de 2026 · ' + allRows.length + ' atendimentos agendados';
+    document.getElementById('table-spec-label').textContent = spec;
+    document.querySelector('.search-input').value = '';
+    updateKpis(allRows);
+    renderTable(allRows);
+  }
+
+  function filterTable(query) {
+    const q = query.toLowerCase();
+    const filtered = allRows.filter(r =>
+      r.doctor.toLowerCase().includes(q) ||
+      r.sala.toLowerCase().includes(q) ||
+      r.type.toLowerCase().includes(q) ||
+      r.patient.toLowerCase().includes(q)
+    );
+    renderTable(filtered);
+  }
+
+  function selectDate(chip, label) {
+    document.querySelectorAll('.date-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+  }
+
+  // Init grades table on load
+  allRows = specData['Dermatologia'];
+  renderTable(allRows);
+
+  // ── MODAL ───────────────────────────────────────────────
+  function openModal() {
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+  }
+  function closeModalOutside(e) {
+    if (e.target === document.getElementById('modalOverlay')) closeModal();
+  }
+</script>
+</body>
+</html>
