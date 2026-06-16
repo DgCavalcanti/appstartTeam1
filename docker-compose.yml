@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Persiste o SQLite da aplicacao entre rebuilds do container
+      - ./app.db:/app/app.db
+      # Mantem os CSVs/dados locais sincronizados com o host
+      - ./data:/app/data

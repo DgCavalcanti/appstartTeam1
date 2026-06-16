@@ -1,0 +1,9 @@
+id,numero,bloco,andar,status,acessibilidade,equipamentos,especialidade_preferencial
+S001,101,A,1,disponivel,true,ECG;Monitor,Cardiologia
+S002,102,A,1,disponivel,true,Mesa Ginecológica,Ginecologia
+S003,201,A,2,disponivel,false,,Ortopedia
+S004,202,A,2,reforma,false,,
+S005,301,B,1,disponivel,true,Lâmpada de Fenda;Tonômetro,Oftalmologia
+S006,302,B,1,disponivel,true,,Geral
+S007,303,B,1,manutencao,true,,Geral
+S008,401,C,3,disponivel,false,,Ortopedia

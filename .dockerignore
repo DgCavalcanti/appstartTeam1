@@ -1,0 +1,26 @@
+# Ambientes virtuais / dependencias locais (instaladas dentro da imagem)
+.venv
+node_modules
+frontend/node_modules
+frontend/dist
+
+# Git e metadados
+.git
+.github
+.gitignore
+
+# Caches e artefatos de teste/lint
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+# Segredos: nunca embutir no build, passar via env_file no runtime
+.env
+
+# Banco local e dados grandes/irrelevantes para o build
+app.db
+Documentacao
+
+# Build do backend ja existente (sera reconstruido no stage do frontend)
+src/static/dist

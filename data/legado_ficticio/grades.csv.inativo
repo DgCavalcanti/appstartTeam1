@@ -1,0 +1,7 @@
+id,especialidade,profissional,dia_semana,turno,qtd_salas_necessarias
+G001,Ortopedia,Dr. Souza,Segunda,Manhã,2
+G002,Cardiologia,Dra. Lima,Segunda,Manhã,1
+G003,Ginecologia,Dra. Costa,Terça,Tarde,1
+G004,Oftalmologia,Dr. Mendes,Quarta,Manhã,1
+G005,Ortopedia,Dr. Souza,Quinta,Tarde,1
+G006,Cardiologia,Dr. Ferreira,Sexta,Manhã,1
