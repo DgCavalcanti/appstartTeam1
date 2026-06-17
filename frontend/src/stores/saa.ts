@@ -70,6 +70,13 @@ export interface HistoricoAjuste {
   justificativa?: string;
 }
 
+export interface ResultadoAlocacaoAutomatica {
+  alocacoes_criadas: Alocacao[];
+  grades_nao_alocadas: Grade[];
+  conflitos_detectados: Conflito[];
+  resumo: string;
+}
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export const useSaaStore = defineStore('saa', () => {
@@ -360,6 +367,73 @@ export const useSaaStore = defineStore('saa', () => {
     return alocacoes.value.find(a => a.grade_id === gradeId);
   }
 
+  // ── Ação: executar alocação automática ──────────────────────────────────────
+
+  /**
+   * Executa o motor de alocação automática via API.
+   * Sincroniza o resultado com o estado local e retorna o resumo.
+   *
+   * @param diaSemana Dia da semana (ex: 'Segunda', 'Terça', ...)
+   * @param turno Turno (ex: 'Manhã', 'Tarde', 'Noite')
+   * @param token Token JWT para autenticação
+   */
+  async function executarAlocacaoAutomatica(
+    diaSemana: string,
+    turno: string,
+    token: string
+  ): Promise<{ ok: boolean; resultado?: ResultadoAlocacaoAutomatica; erro?: string }> {
+    try {
+      const queryParams = new URLSearchParams({
+        dia_semana: diaSemana,
+        turno: turno,
+      });
+      const response = await fetch(`/api/alocacoes/automatica?${queryParams}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        return {
+          ok: false,
+          erro: err.detail || `Erro HTTP ${response.status}`
+        };
+      }
+
+      const data = await response.json();
+
+      // Sincroniza novas alocações com o estado local
+      // Compara case-insensitive pois o backend retorna "segunda" e o frontend usa "Segunda"
+      if (data.alocacoes_criadas && Array.isArray(data.alocacoes_criadas)) {
+        const diaNorm  = diaSemana.toLowerCase();
+        const turnoNorm = turno.toLowerCase();
+        alocacoes.value = [
+          ...alocacoes.value.filter(
+            a => a.dia_semana.toLowerCase() !== diaNorm || a.turno.toLowerCase() !== turnoNorm
+          ),
+          ...data.alocacoes_criadas,
+        ];
+      }
+
+      return {
+        ok: true,
+        resultado: {
+          alocacoes_criadas: data.alocacoes_criadas || [],
+          grades_nao_alocadas: data.grades_nao_alocadas || [],
+          conflitos_detectados: conflitos.value,
+          resumo: data.resumo || '',
+        }
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        erro: err instanceof Error ? err.message : 'Erro desconhecido'
+      };
+    }
+  }
+
   return {
     // Estado
     salas, grades, alocacoes, restricoes, historico,
@@ -369,6 +443,8 @@ export const useSaaStore = defineStore('saa', () => {
     importarGrades, importarSalas, importarAlocacoes, importarRestricoes,
     // Edição
     editarAlocacao,
+    // Alocação automática
+    executarAlocacaoAutomatica,
     // Helpers
     getSala, getGrade, getConflitosParaSala, getConflitosParaGrade, getAlocacaoPorGrade,
   };

@@ -50,6 +50,10 @@
           <ClipboardDocumentListIcon class="h-5 w-5"/><span>Alocações</span>
         </router-link>
 
+        <router-link to="/saa/alocacao-automatica" class="flex items-center space-x-2 py-2.5 px-4 rounded transition duration-200 hover:bg-paper-active-link hover:text-white">
+          <SparklesIcon class="h-5 w-5"/><span>Alocação Automática</span>
+        </router-link>
+
         <router-link to="/saa/importar" class="flex items-center space-x-2 py-2.5 px-4 rounded transition duration-200 hover:bg-paper-active-link hover:text-white">
           <ArrowUpTrayIcon class="h-5 w-5"/><span>Importar CSV</span>
         </router-link>
@@ -107,7 +111,7 @@ import {
   HomeIcon, BeakerIcon, UsersIcon, ShieldCheckIcon,
   CubeTransparentIcon, Bars3Icon, ArrowRightOnRectangleIcon,
   ChartBarIcon, AcademicCapIcon, BuildingOfficeIcon,
-  ClipboardDocumentListIcon, ArrowUpTrayIcon, ClockIcon,
+  ClipboardDocumentListIcon, ArrowUpTrayIcon, ClockIcon, SparklesIcon,
 } from '@heroicons/vue/24/outline';
 import ProfileDropdown from '../components/ProfileDropdown.vue';
 import Button from '../components/Button.vue';

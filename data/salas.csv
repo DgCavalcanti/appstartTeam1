@@ -1,0 +1,13 @@
+id,numero,andar,bloco,status,tem_equipamento,acessivel,especialidade_preferencial,tem_maca_ginecologica
+1,101,1,A,disponivel,true,true,Pediatria,false
+2,102,1,A,disponivel,true,false,Cardiologia,false
+3,103,1,A,bloqueada,false,true,,false
+4,201,2,A,disponivel,true,true,Ortopedia,false
+5,202,2,A,disponivel,true,true,Pediatria,false
+6,203,2,A,reforma,true,false,,false
+7,401,1,B,disponivel,false,true,Cardiologia,false
+8,402,1,B,disponivel,true,true,,true
+9,403,1,B,disponivel,true,false,,false
+10,501,2,B,disponivel,true,true,Pediatria,false
+11,502,2,B,manutencao,false,true,,false
+12,503,2,B,disponivel,true,true,Ortopedia,false

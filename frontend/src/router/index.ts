@@ -13,6 +13,7 @@ import SaaSalas     from '../views/SaaSalas.vue';
 import SaaAlocacoes from '../views/SaaAlocacoes.vue';
 import SaaImportar  from '../views/SaaImportar.vue';
 import SaaHistorico from '../views/SaaHistorico.vue';
+import SaaAlocacaoAutomatica from '../views/SaaAlocacaoAutomatica.vue';
 
 const routes = [
   { path: '/',       name: 'Home',      component: Home },
@@ -26,6 +27,7 @@ const routes = [
   { path: '/saa/grades',      name: 'SAA Grades',    component: SaaGrades },
   { path: '/saa/salas',       name: 'SAA Salas',     component: SaaSalas },
   { path: '/saa/alocacoes',   name: 'SAA Alocações', component: SaaAlocacoes },
+  { path: '/saa/alocacao-automatica', name: 'Alocação Automática', component: SaaAlocacaoAutomatica },
   { path: '/saa/importar',    name: 'SAA Importar',  component: SaaImportar },
   { path: '/saa/historico',   name: 'SAA Histórico', component: SaaHistorico },
 ];

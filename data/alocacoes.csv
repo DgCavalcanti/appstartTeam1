@@ -1,0 +1,7 @@
+id,grade_id,sala_id,dia_semana,turno,status
+1,1,1,segunda,manha,alocada
+2,1,4,segunda,manha,alocada
+3,2,2,segunda,tarde,alocada
+4,3,4,terca,manha,alocada
+5,3,10,terca,manha,alocada
+6,3,12,terca,manha,alocada

@@ -1,0 +1,11 @@
+id,especialidade,profissional,dia_semana,turno,qtd_salas_necessarias
+1,Pediatria,Dr. João Silva,segunda,manha,2
+2,Cardiologia,Dra. Maria Santos,segunda,tarde,1
+3,Ortopedia,Dr. Pedro Costa,terca,manha,3
+4,Pediatria,Dr. Carlos Lima,terca,tarde,2
+5,Cardiologia,Dra. Ana Oliveira,quarta,manha,1
+6,Ortopedia,Dr. Fernando Dias,quarta,tarde,2
+7,Pediatria,Dr. Marcos Pereira,quinta,manha,2
+8,Cardiologia,Dra. Lucia Ferreira,quinta,tarde,1
+9,Ortopedia,Dr. Roberto Souza,sexta,manha,3
+10,Pediatria,Dr. Thiago Mendes,sexta,tarde,2
