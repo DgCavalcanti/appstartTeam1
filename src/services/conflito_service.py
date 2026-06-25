@@ -28,6 +28,10 @@ def calcular_conflitos(
     alocacoes: list[Alocacao],
 ) -> list[Conflito]:
     """Retorna todos os conflitos detectados para o conjunto de dados informado."""
+    alocacoes_validas = [
+        a for a in alocacoes
+        if a.id and a.grade_id and a.sala_id and a.dia_semana and a.turno
+    ]
     resultado: list[Conflito] = []
     seq = 0
 
@@ -40,7 +44,7 @@ def calcular_conflitos(
     grade_map = {g.id: g for g in grades}
 
     # ── C01/C02/C03: Status de sala inválido em alocação ─────────────────────
-    for aloc in alocacoes:
+    for aloc in alocacoes_validas:
         sala = sala_map.get(aloc.sala_id)
         if sala is None:
             continue
@@ -58,7 +62,7 @@ def calcular_conflitos(
             ))
 
     # ── C04: Sala inexistente em alocação ─────────────────────────────────────
-    for aloc in alocacoes:
+    for aloc in alocacoes_validas:
         if aloc.sala_id not in sala_map:
             resultado.append(Conflito(
                 id=uid(), tipo="sala_inexistente", gravidade="critico",
@@ -67,7 +71,7 @@ def calcular_conflitos(
             ))
 
     # ── C05: Grade inexistente em alocação ────────────────────────────────────
-    for aloc in alocacoes:
+    for aloc in alocacoes_validas:
         if aloc.grade_id not in grade_map:
             resultado.append(Conflito(
                 id=uid(), tipo="grade_inexistente", gravidade="critico",
@@ -77,7 +81,7 @@ def calcular_conflitos(
 
     # ── C06: Dupla alocação (mesma sala, dia, turno) ──────────────────────────
     chave_aloc: dict[str, list[Alocacao]] = {}
-    for aloc in alocacoes:
+    for aloc in alocacoes_validas:
         chave = f"{aloc.sala_id}|{aloc.dia_semana}|{aloc.turno}"
         chave_aloc.setdefault(chave, []).append(aloc)
 
@@ -95,9 +99,16 @@ def calcular_conflitos(
             ))
 
     # ── C07: Grade sem sala associada ─────────────────────────────────────────
-    grades_alocadas = {a.grade_id for a in alocacoes}
+    # Usa a tripla (grade_id, dia_semana, turno): um grade_id pode recorrer em
+    # dias/turnos diferentes (grade recorrente), então ter alocação em uma
+    # ocorrência não significa que outra ocorrência da mesma grade também
+    # tenha — checar só por grade_id geraria falsos negativos (ocorrência sem
+    # sala não seria reportada porque outra ocorrência, em outro dia, tem).
+    grades_alocadas = {
+        (a.grade_id, a.dia_semana, a.turno) for a in alocacoes_validas
+    }
     for grade in grades:
-        if grade.id not in grades_alocadas:
+        if (grade.id, grade.dia_semana, grade.turno) not in grades_alocadas:
             resultado.append(Conflito(
                 id=uid(), tipo="grade_sem_sala", gravidade="critico",
                 descricao=(
@@ -115,7 +126,7 @@ def calcular_conflitos(
     for r in restricoes:
         restricao_por_sala.setdefault(r.sala_id, []).append(r)
 
-    for aloc in alocacoes:
+    for aloc in alocacoes_validas:
         sala  = sala_map.get(aloc.sala_id)
         grade = grade_map.get(aloc.grade_id)
         if sala is None or grade is None:

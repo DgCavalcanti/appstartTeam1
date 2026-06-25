@@ -1,7 +1,6 @@
 """Testes do serviço de conflitos do SAA — cobre as 10 regras MVP."""
 from __future__ import annotations
 
-import pytest
 from src.models.schemas import Alocacao, Grade, Restricao, Sala
 from src.services.conflito_service import calcular_conflitos
 
@@ -97,6 +96,11 @@ class TestC05GradeInexistente:
         aloc = _aloc(grade_id="G999")
         conflitos = calcular_conflitos([], [_sala()], [], [aloc])
         assert any(c.tipo == "grade_inexistente" and c.gravidade == "critico" for c in conflitos)
+
+    def test_alocacao_sem_grade_id_nao_gera_conflito_falso(self):
+        aloc = _aloc(grade_id="")
+        conflitos = calcular_conflitos([_grade()], [_sala()], [], [aloc])
+        assert not any(c.tipo == "grade_inexistente" for c in conflitos)
 
 
 # ── C06: Dupla alocação ───────────────────────────────────────────────────────

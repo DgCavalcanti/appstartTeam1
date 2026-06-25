@@ -1,4 +1,8 @@
-id,sala_id,tipo,valor
+﻿id,sala_id,tipo,valor
 R001,S001,equipamento_obrigatorio,ECG
 R002,S002,equipamento_obrigatorio,Mesa Ginecológica
-R003,S005,equipamento_obrigatorio,Lâmpada de Fenda
+R003,S005,equipamento_obrigatorio,Lâmpada de fenda
+R004,S011,equipamento_obrigatorio,Audiômetro
+R005,S008,alerta_acessibilidade,Ortopedia evitar andar alto
+R006,S006,bloqueio_operacional,Sala bloqueada para uso ambulatorial
+R007,S009,bloqueio_operacional,Sala em reforma

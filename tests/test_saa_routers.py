@@ -12,15 +12,14 @@ Cobre:
   - POST /api/alocacoes/ajustar — exige justificativa com conflito
   - POST /api/alocacoes/ajustar — alocação inexistente → 422
   - GET /api/alocacoes/historico — registrado após ajuste
-  - Endpoint de alocação automática NÃO disponível
+  - POST /api/alocacoes/automatica — alocação automática por dia/turno
 """
 from __future__ import annotations
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.models.schemas import Alocacao, Grade, Restricao, Sala
+from src.models.schemas import Alocacao, Grade, Sala
 from src.providers.interfaces.grade_provider_interface import GradeProviderInterface
 from src.providers.interfaces.historico_provider_interface import (
     AlocacaoSaaProviderInterface,
@@ -364,10 +363,44 @@ class TestGetHistorico:
         assert historico[0]["sala_nova_id"] == "S002"
 
 
-# ── Endpoint automático NÃO existe ────────────────────────────────────────────
+# ── POST /api/alocacoes/automatica ────────────────────────────────────────────
 
-class TestAlocacaoAutomaticaNaoExiste:
+class TestAlocacaoAutomatica:
 
-    def test_post_automatica_retorna_404_ou_405(self):
-        resp = TestClient(app).post("/api/alocacoes/automatica?dia_semana=segunda&turno=manha")
-        assert resp.status_code in (404, 405)
+    def test_post_automatica_cria_alocacao(self):
+        controller = _make_alocacao_controller(
+            grades=[_grade()],
+            salas=[_sala()],
+            alocacoes=[],
+        )
+        app.dependency_overrides[alocacao_router.get_alocacao_controller] = lambda: controller
+
+        resp = TestClient(app).post("/api/alocacoes/automatica", json={
+            "dia_semana": "Segunda",
+            "turno": "Manhã",
+        })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_grades"] == 1
+        assert data["total_alocadas"] == 1
+        assert len(data["alocacoes_persistidas"]) == 1
+        assert controller.listar_alocacoes()[0].sala_id == "S001"
+
+    def test_post_automatica_nao_duplica_alocacao_existente(self):
+        controller = _make_alocacao_controller(
+            grades=[_grade()],
+            salas=[_sala(), _sala(id="S002", numero="102")],
+            alocacoes=[_aloc()],
+        )
+        app.dependency_overrides[alocacao_router.get_alocacao_controller] = lambda: controller
+        client = TestClient(app)
+
+        for _ in range(2):
+            resp = client.post("/api/alocacoes/automatica", json={
+                "dia_semana": "segunda",
+                "turno": "manha",
+            })
+            assert resp.status_code == 200
+
+        assert len(controller.listar_alocacoes()) == 1

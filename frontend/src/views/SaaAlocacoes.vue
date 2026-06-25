@@ -17,6 +17,60 @@
       </div>
     </div>
 
+    <Card class="mb-6">
+      <div class="flex flex-wrap items-end gap-3">
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Dia</label>
+          <select v-model="filtros.dia" class="form-control !py-1.5 !text-sm w-36">
+            <option value="">Selecione</option>
+            <option v-for="d in DIAS" :key="d">{{ d }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Turno</label>
+          <select v-model="filtros.turno" class="form-control !py-1.5 !text-sm w-32">
+            <option value="">Selecione</option>
+            <option v-for="t in TURNOS" :key="t">{{ t }}</option>
+          </select>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-gray-600 pb-2 cursor-pointer">
+          <input v-model="sobrescreverAuto" type="checkbox" class="rounded border-gray-300" />
+          Sobrescrever existentes
+        </label>
+        <Button
+          variant="success"
+          :loading="executandoAuto"
+          :disabled="!filtros.dia || !filtros.turno"
+          class="!py-1.5 !text-sm"
+          @click="executarAlocacaoAutomatica"
+        >
+          Alocar automaticamente
+        </Button>
+      </div>
+
+      <div
+        v-if="resultadoAuto"
+        class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center"
+      >
+        <div class="bg-gray-50 rounded p-3">
+          <div class="text-xl font-bold text-paper-primary">{{ resultadoAuto.total_grades }}</div>
+          <div class="text-xs text-gray-500">Grades avaliadas</div>
+        </div>
+        <div class="bg-green-50 rounded p-3">
+          <div class="text-xl font-bold text-green-700">{{ resultadoAuto.alocacoes_persistidas.length }}</div>
+          <div class="text-xs text-gray-500">Persistidas</div>
+        </div>
+        <div class="bg-yellow-50 rounded p-3">
+          <div class="text-xl font-bold text-yellow-700">{{ resultadoAuto.total_sem_alocacao }}</div>
+          <div class="text-xs text-gray-500">Sem sala</div>
+        </div>
+        <div class="bg-red-50 rounded p-3">
+          <div class="text-xl font-bold text-red-700">{{ resultadoAuto.conflitos.length }}</div>
+          <div class="text-xs text-gray-500">Conflitos finais</div>
+        </div>
+      </div>
+    </Card>
+
     <Card>
       <div v-if="alocacoesFiltradas.length === 0" class="text-center text-gray-400 py-12">
         <ClipboardDocumentListIcon class="h-12 w-12 mx-auto mb-3 opacity-30" />
@@ -85,21 +139,38 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { useToast } from 'vue-toastification';
 import { ClipboardDocumentListIcon } from '@heroicons/vue/24/outline';
 import { useSaaStore } from '../stores/saa';
+import type { AlocacaoAutomaticaResponse } from '../stores/saa';
 import Card from '../components/Card.vue';
 import Button from '../components/Button.vue';
 import Modal from '../components/Modal.vue';
 import EditarAlocacaoDireta from '../components/EditarAlocacaoDireta.vue';
 
 const store = useSaaStore();
+const toast = useToast();
+
+// CORRIGIDO (auditoria técnica): faltava buscar os dados da API ao montar
+// a tela — ver SaaDashboard.vue para o mesmo problema.
+onMounted(async () => {
+  await Promise.all([
+    store.buscarAlocacoes(),
+    store.buscarGrades(),
+    store.buscarSalas(),
+    store.buscarConflitos(),
+  ]);
+});
 
 const DIAS   = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const TURNOS = ['Manhã', 'Tarde', 'Noite'];
 
 const filtros = ref({ dia: '', turno: '' });
 const alocacaoEditandoId = ref<string | null>(null);
+const sobrescreverAuto = ref(false);
+const executandoAuto = ref(false);
+const resultadoAuto = ref<AlocacaoAutomaticaResponse | null>(null);
 
 const alocacoesFiltradas = computed(() => store.alocacoes.filter(a => {
   if (filtros.value.dia   && a.dia_semana !== filtros.value.dia)   return false;
@@ -122,4 +193,28 @@ function badgeStatus(status: string) {
 }
 
 function abrirEdicao(id: string) { alocacaoEditandoId.value = id; }
+
+async function executarAlocacaoAutomatica() {
+  if (!filtros.value.dia || !filtros.value.turno) return;
+
+  executandoAuto.value = true;
+  try {
+    const resultado = await store.alocarAutomaticamente({
+      dia_semana: filtros.value.dia,
+      turno: filtros.value.turno,
+      sobrescrever: sobrescreverAuto.value,
+    });
+    resultadoAuto.value = resultado;
+
+    if (resultado) {
+      toast.success(
+        `Alocação automática concluída: ${resultado.alocacoes_persistidas.length} sala(s) alocada(s), ${resultado.total_sem_alocacao} grade(s) sem sala.`
+      );
+    } else {
+      toast.error(store.erro ?? 'Erro ao executar alocação automática.');
+    }
+  } finally {
+    executandoAuto.value = false;
+  }
+}
 </script>

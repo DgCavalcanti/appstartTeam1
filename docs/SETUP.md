@@ -29,9 +29,15 @@ uv sync
 cp .env.example .env
 
 # Edite o arquivo .env com suas configurações
-# Dica: Para desenvolvimento offline, use PACIENTE_PROVIDER_TYPE=CSV
 nano .env
 ```
+
+> **Nota sobre o provedor de pacientes:** a variável `PACIENTE_PROVIDER_TYPE` no
+> `.env` é apenas documentação — o backend não a lê. A fonte de dados usada por
+> `/api/pacientes` é definida pela constante `STRATEGY` no topo de
+> `src/routers/paciente.py` (`"csv"` por padrão, recomendado para desenvolvimento
+> offline). Para usar PostgreSQL, altere `STRATEGY = "postgres"` nesse arquivo
+> e configure `POSTGRES_DSN` no `.env`.
 
 ## 2. Configuração do Frontend
 
@@ -70,6 +76,19 @@ Realiza o build completo do frontend e serve tudo através do FastAPI.
 chmod +x start.sh
 ./start.sh
 ```
+
+### C. Modo Docker (`docker-compose.yml`)
+Build multi-stage (frontend Vue + backend FastAPI) em um único container.
+
+```bash
+# O compose monta ./app.db como arquivo (bind mount). Se ele não existir,
+# o Docker cria um DIRETÓRIO no lugar e o SQLite falha ao abrir. Crie o
+# arquivo vazio antes do primeiro run:
+touch app.db   # Windows (PowerShell): New-Item -ItemType File app.db
+
+docker compose up --build
+```
+Disponível em `http://localhost:8000`.
 
 ---
 

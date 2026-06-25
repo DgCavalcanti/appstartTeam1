@@ -1,7 +1,7 @@
 # src/resources/database.py
 
 from typing import AsyncGenerator
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, AsyncEngine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
@@ -38,8 +38,17 @@ class DatabaseManager:
 async def get_aghu_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency for FastAPI to get an AGHU database session from the app state.
+
+    Levanta um 503 claro (em vez de AttributeError/NoneType) quando POSTGRES_DSN
+    não foi configurado e o pool nunca foi inicializado no lifespan — corrigido
+    na auditoria técnica, já que esse caminho era um crash não tratado.
     """
-    aghu_db_manager: DatabaseManager = request.app.state.aghu_db
+    aghu_db_manager: DatabaseManager | None = getattr(request.app.state, "aghu_db", None)
+    if aghu_db_manager is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Banco de dados AGHU (PostgreSQL) não configurado. Defina POSTGRES_DSN no .env.",
+        )
     async for session in aghu_db_manager.get_session():
         yield session
 

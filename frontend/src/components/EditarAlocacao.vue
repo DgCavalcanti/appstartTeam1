@@ -82,7 +82,7 @@ const toast    = useToast();
 const novaSalaId    = ref('');
 const justificativa = ref('');
 
-const alocacaoAtual = computed(() => store.getAlocacaoPorGrade(props.grade.id));
+const alocacaoAtual = computed(() => store.getAlocacaoPorGrade(props.grade.id, props.grade.dia_semana, props.grade.turno));
 
 // Salas disponíveis (exclui bloqueadas e em reforma do MVP, mas as lista com aviso)
 const salasDisponiveis = computed(() => store.salas);
@@ -127,17 +127,24 @@ async function salvar() {
     return;
   }
 
-  // Se não há alocação ainda, cria localmente (sem persistência no MVP)
+  // Se não há alocação ainda, cria via backend (persiste de fato — ver
+  // store.criarAlocacao). CORRIGIDO: antes era um push local no store, que
+  // nunca chegava ao backend e por isso desaparecia ao recarregar o Painel.
   if (!alocacaoAtual.value) {
-    store.alocacoes.push({
-      id:         `A-${Date.now()}`,
+    const resp = await store.criarAlocacao({
       grade_id:   props.grade.id,
       sala_id:    novaSalaId.value,
       dia_semana: props.grade.dia_semana,
       turno:      props.grade.turno,
+      justificativa: justificativa.value.trim() || undefined,
     });
-    toast.success('Alocação criada com sucesso.');
-    emit('salvo');
+
+    if (resp) {
+      toast.success('Alocação criada com sucesso.');
+      emit('salvo');
+    } else {
+      toast.error(store.erro ?? 'Erro ao criar alocação.');
+    }
     return;
   }
 

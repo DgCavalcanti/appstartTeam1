@@ -84,16 +84,66 @@ def _normalizar_nome_coluna(nome: str) -> str:
     return nome.strip().replace("﻿", "")
 
 
-def _ler_csv_aghu(caminho: Path) -> tuple[list[dict], str]:
+def _tratar_bytes_nulos(texto: str, nome_arquivo: str) -> tuple[str, str]:
+    """Trata bytes nulos (0x00) encontrados no texto do CSV.
+
+    Padrão real observado: gravação/cópia interrompida deixa um bloco de
+    bytes nulos colado ao FINAL do arquivo, depois dos dados válidos. Esse
+    padrão é seguro de recuperar automaticamente — descartamos a partir do
+    primeiro byte nulo e seguimos com o restante, que contém só dados reais.
+
+    Se os bytes nulos NÃO formarem um bloco final puro (misturados com
+    dados, ou sem nenhum conteúdo recuperável antes deles), não é seguro
+    adivinhar o que é lixo e o que é dado real — levanta ValueError.
+    """
+    primeiro_nul = texto.index("\x00")
+    cauda = texto[primeiro_nul:]
+    texto_limpo = texto[:primeiro_nul].rstrip("\r\n")
+    if cauda.strip("\x00\r\n \t") != "" or not texto_limpo.strip():
+        raise ValueError(
+            f"'{nome_arquivo}' parece corrompido: contém bytes nulos (0x00) misturados "
+            "com dados (não apenas no final), então não é seguro recuperar automaticamente. "
+            "Reexporte o arquivo original e tente importar novamente."
+        )
+    aviso = (
+        f"'{nome_arquivo}' tinha {len(cauda)} byte(s) nulos (0x00) corrompidos no final "
+        "(provavelmente de uma gravação/cópia interrompida). Esse trecho foi descartado "
+        "automaticamente e os dados válidos antes dele foram importados normalmente. "
+        "Recomenda-se reexportar o arquivo original para confirmar que nada foi perdido."
+    )
+    return texto_limpo, aviso
+
+
+def _ler_csv_aghu(caminho: Path) -> tuple[list[dict], str, str | None]:
     """Lê o CSV com detecção automática de encoding e separador.
 
-    Retorna (linhas, encoding_usado).
+    Retorna (linhas, encoding_usado, aviso_corrupcao).
     """
     if not caminho.exists():
         raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
 
     encoding = _detectar_encoding(caminho)
     texto = caminho.read_text(encoding=encoding)
+
+    # CORRIGIDO: arquivo corrompido (gravação/cópia interrompida) pode ficar
+    # com um grande trecho de bytes nulos (0x00) após os dados reais — o
+    # csv.DictReader explode com "_csv.Error: line contains NUL" (não é
+    # ValueError/KeyError, então não era tratado em nenhum lugar). Checamos
+    # antes do round-trip de mojibake para falhar rápido em vez de gastar
+    # tempo/memória processando um arquivo de dezenas/centenas de MB inválido.
+    # Quando o bloco nulo é só uma cauda final, recuperamos o prefixo válido
+    # em vez de rejeitar o arquivo inteiro — ver _tratar_bytes_nulos.
+    aviso_corrupcao: str | None = None
+    if "\x00" in texto:
+        texto, aviso_corrupcao = _tratar_bytes_nulos(texto, caminho.name)
+        # Autocura: grava a versão limpa de volta no arquivo, removendo a
+        # cauda de bytes nulos do disco em vez de reprocessá-la para sempre.
+        # "utf-8-sig" é o encoding de LEITURA (aceita BOM ou não); se usado
+        # para escrita, sempre adiciona um BOM novo mesmo que o arquivo nunca
+        # tivesse um. Gravamos como "utf-8" puro para não introduzir BOM.
+        encoding_escrita = "utf-8" if encoding == "utf-8-sig" else encoding
+        caminho.write_text(texto, encoding=encoding_escrita)
+
     texto = _corrigir_mojibake(texto)
 
     if not texto.strip():
@@ -104,15 +154,20 @@ def _ler_csv_aghu(caminho: Path) -> tuple[list[dict], str]:
 
     reader = csv.DictReader(io.StringIO(texto), delimiter=sep)
     linhas = []
-    for row in reader:
-        # normaliza nomes de colunas (remove espaços, BOM)
-        linha_norm = {_normalizar_nome_coluna(k): (v.strip() if v else "") for k, v in row.items()}
-        linhas.append(linha_norm)
+    try:
+        for row in reader:
+            # normaliza nomes de colunas (remove espaços, BOM)
+            linha_norm = {_normalizar_nome_coluna(k): (v.strip() if v else "") for k, v in row.items()}
+            linhas.append(linha_norm)
+    except csv.Error as e:
+        raise ValueError(f"'{caminho.name}' não pôde ser interpretado como CSV: {e}")
 
-    if not linhas:
-        raise ValueError(f"Arquivo CSV sem linhas de dados: {caminho}")
+    # CORRIGIDO: cabeçalho presente mas 0 linhas de dados é um estado válido
+    # (ex.: arquivo recém-resetado via /api/importacao/reset/grades, antes de
+    # uma nova importação) — não só "arquivo corrompido/vazio". Erro real de
+    # arquivo sem nem cabeçalho já foi pego acima por `if not texto.strip()`.
 
-    return linhas, encoding
+    return linhas, encoding, aviso_corrupcao
 
 
 def _validar_colunas(linhas: list[dict], obrigatorias: set[str], nome_arquivo: str) -> None:
@@ -137,9 +192,12 @@ class GradeAghuCsvProvider:
 
     def __init__(self, caminho: Path = Path("data/vw_grades.csv")) -> None:
         self.caminho = caminho
+        self.ultimo_aviso_corrupcao: str | None = None
 
     def listar_grades(self) -> list[GradeAghu]:
-        linhas, encoding = _ler_csv_aghu(self.caminho)
+        linhas, encoding, self.ultimo_aviso_corrupcao = _ler_csv_aghu(self.caminho)
+        if not linhas:
+            return []
         _validar_colunas(linhas, COLUNAS_OBRIGATORIAS_AGHU, self.caminho.name)
 
         grades: list[GradeAghu] = []
@@ -191,7 +249,7 @@ class GradeAghuCsvProvider:
 
     def resumo_importacao(self) -> dict:
         """Retorna estatísticas de qualidade da importação."""
-        linhas, _ = _ler_csv_aghu(self.caminho)
+        linhas, _, aviso_corrupcao = _ler_csv_aghu(self.caminho)
         grades = self.listar_grades()
 
         sem_dia = sum(1 for g in grades if not g.dia_semana)
@@ -200,6 +258,8 @@ class GradeAghuCsvProvider:
         grades_unicas = len({g.grade_id for g in grades})
 
         avisos = []
+        if aviso_corrupcao:
+            avisos.append(aviso_corrupcao)
         if sem_dia:
             avisos.append(f"Existem {sem_dia} linhas sem dia da semana")
         if sem_hora:

@@ -33,8 +33,8 @@
           <ChartBarIcon class="h-5 w-5"/>
           <span>Painel</span>
           <span v-if="saaStore.indicadores.conflitosCriticos > 0"
-            class="ml-auto bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-            {{ saaStore.indicadores.conflitosCriticos }}
+            class="ml-auto bg-red-500 text-white text-xs rounded-full min-w-5 h-5 px-1 flex items-center justify-center font-bold">
+            {{ saaStore.indicadores.conflitosCriticos > 999 ? '999+' : saaStore.indicadores.conflitosCriticos }}
           </span>
         </router-link>
 

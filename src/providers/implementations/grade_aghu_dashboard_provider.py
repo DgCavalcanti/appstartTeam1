@@ -16,6 +16,19 @@ Mapeamento Grade <- GradeAghu:
     turno                 <- turno
     qtd_salas_necessarias <- qtd_salas_necessarias (fixo em 1 — ver regra
                               de negócio em grade_aghu_csv_provider.py)
+
+Deduplicação (regra de negócio do SAA — grades devem ser únicas):
+    vw_grades.csv pode ter várias linhas para o mesmo (grade_id, dia_semana,
+    turno) — uma por Condicao_De_Atendimento (RETORNO, CONSULTA PRIMEIRA
+    VEZ, INTERCONSULTA, etc.), cada uma com sua própria Quantidade_Vagas.
+    Essas linhas são dados reais e legítimos do AGHU (não "lixo"), mas, para
+    o SAA — cujo único interesse é "que sala está alocada nesse horário?" —
+    elas representam a MESMA grade e devem aparecer só uma vez. Por isso
+    listar_grades()/buscar_grade() deduplicam por (grade_id, dia_semana,
+    turno), mantendo a primeira ocorrência. O arquivo de origem nunca é
+    alterado: quem precisa da granularidade por linha (relatórios de
+    capacidade/qualidade em /api/aghu/*) continua lendo GradeAghuCsvProvider
+    diretamente, sem passar por este adapter.
 """
 from __future__ import annotations
 
@@ -27,17 +40,37 @@ from src.providers.interfaces.grade_provider_interface import GradeProviderInter
 
 
 class GradeAghuDashboardProvider(GradeProviderInterface):
-    """Adapta GradeAghuCsvProvider (formato real AGHU) para o contrato Grade do SAA."""
+    """Adapta GradeAghuCsvProvider (formato real AGHU) para o contrato Grade do SAA.
+
+    Garante a regra "grades não podem se repetir": deduplica por
+    (grade_id, dia_semana, turno) — ver docstring do módulo.
+    """
 
     def __init__(self, caminho: Path = Path("data/vw_grades.csv")) -> None:
         self._provider = GradeAghuCsvProvider(caminho=caminho)
 
     def listar_grades(self) -> list[Grade]:
-        return [self._adaptar(g) for g in self._provider.listar_grades()]
+        vistas: set[tuple[str, str, str]] = set()
+        grades: list[Grade] = []
+        for g in self._provider.listar_grades():
+            chave = (g.grade_id, g.dia_semana, g.turno)
+            if chave in vistas:
+                continue
+            vistas.add(chave)
+            grades.append(self._adaptar(g))
+        return grades
 
     def buscar_grade(self, grade_id: str) -> Grade | None:
-        g = self._provider.buscar_grade(grade_id)
-        return self._adaptar(g) if g else None
+        return next((g for g in self.listar_grades() if g.id == grade_id), None)
+
+    def relatorio_duplicadas(self) -> tuple[int, int]:
+        """Retorna (total_linhas_brutas, total_grades_unicas), usado pelo
+        endpoint de verificação/normalização de grades duplicadas
+        (POST /api/grades/remover-duplicadas). Não modifica nada em disco —
+        a deduplicação já é automática em listar_grades()."""
+        brutas = self._provider.listar_grades()
+        unicas = {(g.grade_id, g.dia_semana, g.turno) for g in brutas}
+        return len(brutas), len(unicas)
 
     @staticmethod
     def _adaptar(g: GradeAghu) -> Grade:

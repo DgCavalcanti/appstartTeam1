@@ -87,7 +87,11 @@ const handleLogin = async () => {
   error.value = '';
   try {
     await authStore.login(username.value, password.value, rememberMe.value);
-    await router.push('/admin'); // Ou para onde você quiser redirecionar após o login
+    // CORRIGIDO (auditoria técnica): redirecionava sempre para /admin, então
+    // qualquer usuário autenticado sem privilégio de administrador caía
+    // direto na tela de "Acesso Negado" após o login. Redireciona para a
+    // Home, que está acessível a todos os usuários autenticados.
+    await router.push('/');
   } catch (e: any) {
     error.value = e.response?.data?.detail || e.message || 'Ocorreu um erro desconhecido';
   } finally {

@@ -68,6 +68,24 @@ Este projeto utiliza scripts automatizados para facilitar o ambiente:
 
 A aplicação estará disponível em `http://localhost:8000` (via start.sh) ou `http://localhost:5173` (via dev.sh).
 
+### Modo Docker (alternativa)
+
+O projeto também inclui `Dockerfile` e `docker-compose.yml` (build multi-stage:
+frontend Vue → imagem Python 3.13 com `uv`).
+
+```bash
+cp .env.example .env
+
+# Importante: o compose monta ./app.db como arquivo (bind mount). Se ele não
+# existir ainda (ex.: checkout novo), o Docker cria um DIRETÓRIO no lugar e o
+# backend falha ao abrir o SQLite. Crie o arquivo vazio antes do primeiro run:
+touch app.db   # Windows (PowerShell): New-Item -ItemType File app.db
+
+docker compose up --build
+```
+
+A aplicação ficará disponível em `http://localhost:8000`.
+
 ## Aprofundamento
 
 Para entender a fundo os conceitos e padrões utilizados neste framework, consulte a documentação específica:

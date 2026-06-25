@@ -1,14 +1,13 @@
 """
 Router SAA — Alocações
 
-Endpoints MVP (sem alocação automática):
+Endpoints:
   GET  /api/alocacoes              — listar com filtros
-  POST /api/alocacoes/ajustar      — ajuste manual
+  POST /api/alocacoes              — criar a 1ª alocação de uma grade
+  POST /api/alocacoes/automatica   — alocação automática por dia/turno
+  POST /api/alocacoes/ajustar      — ajuste manual (grade já alocada)
   GET  /api/alocacoes/historico    — histórico de ajustes
 
-O endpoint POST /api/alocacoes/automatica NÃO existe neste MVP.
-O motor alocacao_engine.py está preservado como módulo futuro/experimental
-e não é importado aqui.
 """
 import os
 from pathlib import Path
@@ -18,8 +17,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from src.controllers.alocacao_controller import AlocacaoController
 from src.models.schemas import (
     Alocacao,
+    AlocacaoAutomaticaRequest,
+    AlocacaoAutomaticaResponse,
     AjusteAlocacaoRequest,
     AjusteAlocacaoResponse,
+    CriarAlocacaoRequest,
+    CriarAlocacaoResponse,
     HistoricoAjuste,
 )
 from src.providers.implementations.alocacao_saa_csv_provider import AlocacaoSaaCsvProvider
@@ -63,6 +66,54 @@ def listar_alocacoes(
         raise HTTPException(status_code=status.HTTP_424_FAILED_DEPENDENCY, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
+
+@router.post(
+    "",
+    response_model=CriarAlocacaoResponse,
+    summary="Criar alocação (1ª sala de uma grade)",
+    description=(
+        "Aloca uma sala para uma grade que ainda não possui nenhuma alocação. "
+        "Para trocar a sala de uma grade já alocada, use POST /api/alocacoes/ajustar. "
+        "Exige justificativa quando a sala escolhida gera conflito crítico ou operacional."
+    ),
+)
+def criar_alocacao(
+    req: CriarAlocacaoRequest,
+    x_usuario: str | None = Header(None, alias="X-Usuario"),
+    controller: AlocacaoController = Depends(get_alocacao_controller),
+):
+    usuario = x_usuario or "anonimo"
+    try:
+        return controller.criar_alocacao(req, usuario=usuario)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_424_FAILED_DEPENDENCY, detail=str(e))
+
+
+@router.post(
+    "/automatica",
+    response_model=AlocacaoAutomaticaResponse,
+    summary="Executar alocacao automatica",
+    description=(
+        "Gera alocacoes automaticamente para um dia/turno usando o motor do SAA. "
+        "Por padrao, preserva alocacoes existentes; use sobrescrever=true para "
+        "recalcular ocorrencias ja alocadas."
+    ),
+)
+def alocar_automaticamente(
+    req: AlocacaoAutomaticaRequest,
+    x_usuario: str | None = Header(None, alias="X-Usuario"),
+    controller: AlocacaoController = Depends(get_alocacao_controller),
+):
+    usuario = x_usuario or "anonimo"
+    try:
+        return controller.alocar_automaticamente(req, usuario=usuario)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_424_FAILED_DEPENDENCY, detail=str(e))
 
 
 @router.post(

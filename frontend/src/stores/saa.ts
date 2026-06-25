@@ -97,6 +97,44 @@ export interface AjusteAlocacaoResponse {
   historico: HistoricoAjuste;
 }
 
+export interface CriarAlocacaoRequest {
+  grade_id: string;
+  sala_id: string;
+  dia_semana: string;
+  turno: string;
+  justificativa?: string;
+}
+
+export interface CriarAlocacaoResponse {
+  alocacao: Alocacao;
+  conflitos_depois: Conflito[];
+  historico: HistoricoAjuste;
+}
+
+export interface AlocacaoAutomaticaRequest {
+  dia_semana: string;
+  turno: string;
+  sobrescrever?: boolean;
+}
+
+export interface AlocacaoAutomaticaResponse {
+  dia_semana: string;
+  turno: string;
+  total_grades: number;
+  total_alocadas: number;
+  total_sem_alocacao: number;
+  alocacoes_persistidas: Alocacao[];
+  grades_sem_alocacao: string[];
+  conflitos: Conflito[];
+}
+
+export interface RemocaoGradesDuplicadasResultado {
+  total_linhas_brutas: number;
+  total_grades_unicas: number;
+  duplicadas_normalizadas: number;
+  mensagem: string;
+}
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useSaaStore = defineStore('saa', () => {
@@ -194,11 +232,14 @@ export const useSaaStore = defineStore('saa', () => {
     }
   }
 
-  async function buscarConflitos(filtros?: { dia_semana?: string; turno?: string; especialidade?: string }) {
+  async function buscarConflitos(filtros?: { dia_semana?: string; turno?: string; especialidade?: string; limit?: number; offset?: number }) {
     carregando.value = true;
     erro.value = null;
     try {
-      const params = filtros ? Object.fromEntries(Object.entries(filtros).filter(([, v]) => v != null)) : {};
+      const params = {
+        limit: 200,
+        ...(filtros ? Object.fromEntries(Object.entries(filtros).filter(([, v]) => v != null)) : {}),
+      };
       const { data } = await api.get<Conflito[]>('/api/dashboard/conflitos', { params });
       conflitos.value = data;
     } catch (e: any) {
@@ -221,6 +262,68 @@ export const useSaaStore = defineStore('saa', () => {
       return data;
     } catch (e: any) {
       erro.value = e?.response?.data?.detail ?? 'Erro ao ajustar alocação.';
+      return null;
+    } finally {
+      carregando.value = false;
+    }
+  }
+
+  // Cria a 1ª alocação de sala para uma grade que ainda não tem nenhuma.
+  // CORRIGIDO (auditoria técnica): antes a criação era feita só localmente
+  // (store.alocacoes.push em EditarAlocacao.vue), sem chamar o backend — a
+  // alocação "desaparecia" ao recarregar o Painel SAA, porque ele busca as
+  // alocações de novo em GET /api/alocacoes. Agora persiste de fato.
+  async function criarAlocacao(req: CriarAlocacaoRequest): Promise<CriarAlocacaoResponse | null> {
+    carregando.value = true;
+    erro.value = null;
+    try {
+      const { data } = await api.post<CriarAlocacaoResponse>('/api/alocacoes', req);
+      alocacoes.value.push(data.alocacao);
+      conflitos.value = data.conflitos_depois;
+      historico.value.unshift(data.historico);
+      return data;
+    } catch (e: any) {
+      erro.value = e?.response?.data?.detail ?? 'Erro ao criar alocação.';
+      return null;
+    } finally {
+      carregando.value = false;
+    }
+  }
+
+  async function alocarAutomaticamente(
+    req: AlocacaoAutomaticaRequest,
+  ): Promise<AlocacaoAutomaticaResponse | null> {
+    carregando.value = true;
+    erro.value = null;
+    try {
+      const { data } = await api.post<AlocacaoAutomaticaResponse>('/api/alocacoes/automatica', req);
+      conflitos.value = data.conflitos;
+      await Promise.all([
+        buscarAlocacoes(),
+        buscarResumoDashboard(),
+        buscarConflitos(),
+        buscarGrades(),
+      ]);
+      return data;
+    } catch (e: any) {
+      erro.value = e?.response?.data?.detail ?? 'Erro ao executar alocacao automatica.';
+      return null;
+    } finally {
+      carregando.value = false;
+    }
+  }
+
+  // Verifica/normaliza grades duplicadas no SAA (grade_id + dia_semana +
+  // turno deve ser único). Não apaga nada — a deduplicação já é automática
+  // em GET /api/grades; este endpoint só recalcula e confirma o resultado.
+  async function removerGradesDuplicadas(): Promise<RemocaoGradesDuplicadasResultado | null> {
+    carregando.value = true;
+    erro.value = null;
+    try {
+      const { data } = await api.post<RemocaoGradesDuplicadasResultado>('/api/grades/remover-duplicadas');
+      return data;
+    } catch (e: any) {
+      erro.value = e?.response?.data?.detail ?? 'Erro ao verificar grades duplicadas.';
       return null;
     } finally {
       carregando.value = false;
@@ -314,8 +417,15 @@ export const useSaaStore = defineStore('saa', () => {
     return conflitos.value.filter((c: Conflito) => c.grade_id === gradeId);
   }
 
-  function getAlocacaoPorGrade(gradeId: string) {
-    return alocacoes.value.find((a: Alocacao) => a.grade_id === gradeId);
+  // gradeId por si só pode ser ambíguo (grade recorrente repete em dias/
+  // turnos diferentes) — diaSemana/turno são opcionais só para não quebrar
+  // chamadas antigas, mas todo call site novo deve informá-los.
+  function getAlocacaoPorGrade(gradeId: string, diaSemana?: string, turno?: string) {
+    return alocacoes.value.find((a: Alocacao) =>
+      a.grade_id === gradeId &&
+      (diaSemana === undefined || a.dia_semana === diaSemana) &&
+      (turno === undefined || a.turno === turno)
+    );
   }
 
   return {
@@ -326,7 +436,9 @@ export const useSaaStore = defineStore('saa', () => {
     indicadores,
     // Ações de API
     buscarGrades, buscarSalas, buscarRestricoes, buscarAlocacoes,
-    buscarResumoDashboard, buscarConflitos, ajustarAlocacao, buscarHistorico,
+    buscarResumoDashboard, buscarConflitos, ajustarAlocacao, criarAlocacao,
+    alocarAutomaticamente,
+    removerGradesDuplicadas, buscarHistorico,
     // Importação (upload real)
     importarSalas, importarAlocacoes, importarRestricoes,
     // Helpers

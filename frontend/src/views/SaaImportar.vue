@@ -16,6 +16,7 @@
         descricao="Grade de atendimento exportada do AGHU"
         :icone="AcademicCapIcon"
         :resultado="resultados.grades"
+        :carregando="carregando.grades"
         @importar="(arquivo: File) => importar('grades', arquivo)"
       />
       <ImportCard
@@ -24,6 +25,7 @@
         descricao="Consultas ambulatoriais exportadas do AGHU"
         :icone="CalendarDaysIcon"
         :resultado="resultados.consultas"
+        :carregando="carregando.consultas"
         @importar="(arquivo: File) => importar('consultas', arquivo)"
       />
       <ImportCard
@@ -32,6 +34,7 @@
         descricao="Colunas obrigatórias: id, numero, bloco, status. Opcionais: andar, acessibilidade, equipamentos (separados por ;), especialidade_preferencial"
         :icone="BuildingOfficeIcon"
         :resultado="resultados.salas"
+        :carregando="carregando.salas"
         @importar="(arquivo: File) => importar('salas', arquivo)"
       />
       <ImportCard
@@ -40,6 +43,7 @@
         descricao="Colunas obrigatórias: id, sala_id, tipo, valor"
         :icone="ShieldExclamationIcon"
         :resultado="resultados.restricoes"
+        :carregando="carregando.restricoes"
         @importar="(arquivo: File) => importar('restricoes', arquivo)"
       />
       <ImportCard
@@ -48,6 +52,7 @@
         descricao="Colunas obrigatórias: id, grade_id, sala_id, dia_semana, turno"
         :icone="ClipboardDocumentListIcon"
         :resultado="resultados.alocacoes"
+        :carregando="carregando.alocacoes"
         @importar="(arquivo: File) => importar('alocacoes', arquivo)"
       />
     </div>
@@ -137,6 +142,15 @@ const resultados = reactive<Record<string, { ok: boolean; mensagem: string } | n
   grades: null, consultas: null, salas: null, restricoes: null, alocacoes: null,
 });
 
+// CORRIGIDO (auditoria técnica): não havia nenhum estado de carregamento
+// exposto por arquivo/card durante a importação — o usuário só via o aviso
+// final (sucesso/erro), sem indicação de que o CSV ainda estava sendo
+// processado. `carregando[tipo]` liga o spinner em ImportCard.vue do
+// início ao fim de cada importação, sem substituir o aviso existente.
+const carregando = reactive<Record<string, boolean>>({
+  grades: false, consultas: false, salas: false, restricoes: false, alocacoes: false,
+});
+
 /**
  * Dispatcher de importação — chama a função correta do store e exibe
  * feedback via toast.
@@ -146,41 +160,46 @@ const resultados = reactive<Record<string, { ok: boolean; mensagem: string } | n
  * para o backend, que persiste o CSV no caminho lido pelas demais telas.
  */
 async function importar(tipo: string, arquivo: File) {
-  let resultado: { ok: boolean; mensagem: string };
+  carregando[tipo] = true;
+  try {
+    let resultado: { ok: boolean; mensagem: string };
 
-  if (tipo === 'grades' || tipo === 'consultas') {
-    const r = tipo === 'grades'
-      ? await aghuStore.importarGradesAghu(arquivo)
-      : await aghuStore.importarConsultasAghu(arquivo);
-    if (r) {
-      const avisos = r.avisos.length ? ` — ${r.avisos.join('; ')}` : '';
-      resultado = { ok: true, mensagem: `${r.linhas_validas} válida(s) / ${r.linhas_lidas} lida(s)${avisos}` };
-      if (tipo === 'grades') await store.buscarGrades();
+    if (tipo === 'grades' || tipo === 'consultas') {
+      const r = tipo === 'grades'
+        ? await aghuStore.importarGradesAghu(arquivo)
+        : await aghuStore.importarConsultasAghu(arquivo);
+      if (r) {
+        const avisos = r.avisos.length ? ` — ${r.avisos.join('; ')}` : '';
+        resultado = { ok: true, mensagem: `${r.linhas_validas} válida(s) / ${r.linhas_lidas} lida(s)${avisos}` };
+        if (tipo === 'grades') await store.buscarGrades();
+      } else {
+        resultado = { ok: false, mensagem: aghuStore.erro ?? 'Erro ao importar arquivo.' };
+      }
     } else {
-      resultado = { ok: false, mensagem: aghuStore.erro ?? 'Erro ao importar arquivo.' };
+      const r = tipo === 'salas'
+        ? await store.importarSalas(arquivo)
+        : tipo === 'restricoes'
+          ? await store.importarRestricoes(arquivo)
+          : tipo === 'alocacoes'
+            ? await store.importarAlocacoes(arquivo)
+            : null;
+      if (tipo !== 'salas' && tipo !== 'restricoes' && tipo !== 'alocacoes') return;
+      if (r) {
+        const avisos = r.avisos.length ? ` — ${r.avisos.join('; ')}` : '';
+        resultado = { ok: true, mensagem: `${r.linhas_validas} válida(s) / ${r.linhas_lidas} lida(s)${avisos}` };
+      } else {
+        resultado = { ok: false, mensagem: store.erro ?? 'Erro ao importar arquivo.' };
+      }
     }
-  } else {
-    const r = tipo === 'salas'
-      ? await store.importarSalas(arquivo)
-      : tipo === 'restricoes'
-        ? await store.importarRestricoes(arquivo)
-        : tipo === 'alocacoes'
-          ? await store.importarAlocacoes(arquivo)
-          : null;
-    if (tipo !== 'salas' && tipo !== 'restricoes' && tipo !== 'alocacoes') return;
-    if (r) {
-      const avisos = r.avisos.length ? ` — ${r.avisos.join('; ')}` : '';
-      resultado = { ok: true, mensagem: `${r.linhas_validas} válida(s) / ${r.linhas_lidas} lida(s)${avisos}` };
-    } else {
-      resultado = { ok: false, mensagem: store.erro ?? 'Erro ao importar arquivo.' };
-    }
-  }
 
-  resultados[tipo] = resultado;
-  if (resultado.ok) {
-    toast.success(`✓ ${resultado.mensagem}`);
-  } else {
-    toast.error(`✗ ${resultado.mensagem}`);
+    resultados[tipo] = resultado;
+    if (resultado.ok) {
+      toast.success(`✓ ${resultado.mensagem}`);
+    } else {
+      toast.error(`✗ ${resultado.mensagem}`);
+    }
+  } finally {
+    carregando[tipo] = false;
   }
 }
 </script>

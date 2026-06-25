@@ -52,9 +52,19 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import { ClockIcon, ArrowRightIcon } from '@heroicons/vue/24/outline';
 import { useSaaStore } from '../stores/saa';
 import Card from '../components/Card.vue';
 
 const store = useSaaStore();
+
+// CORRIGIDO (auditoria técnica): faltava buscar histórico/salas da API ao
+// montar a tela — ver SaaDashboard.vue para o mesmo problema.
+onMounted(async () => {
+  await Promise.all([
+    store.buscarHistorico(),
+    store.buscarSalas(),
+  ]);
+});
 </script>

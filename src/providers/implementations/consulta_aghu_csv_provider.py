@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -104,6 +105,38 @@ def _corrigir_mojibake(texto: str) -> str:
     return corrigido
 
 
+def _tratar_bytes_nulos(texto: str, nome_arquivo: str) -> tuple[str, str]:
+    """Trata bytes nulos (0x00) encontrados no texto do CSV.
+
+    Padrão real observado: gravação/cópia interrompida deixa um bloco de
+    bytes nulos colado ao FINAL do arquivo, depois dos dados válidos (ex.:
+    arquivo pré-alocado que nunca terminou de receber o conteúdo). Esse
+    padrão é seguro de recuperar automaticamente — descartamos a partir do
+    primeiro byte nulo e seguimos com o restante, que contém só dados reais.
+
+    Se os bytes nulos NÃO formarem um bloco final puro (aparecem misturados
+    com dados, ou não há nenhum conteúdo recuperável antes deles), não é
+    seguro adivinhar o que é lixo e o que é dado real — nesse caso, levanta
+    ValueError em vez de arriscar perder informação silenciosamente.
+    """
+    primeiro_nul = texto.index("\x00")
+    cauda = texto[primeiro_nul:]
+    texto_limpo = texto[:primeiro_nul].rstrip("\r\n")
+    if cauda.strip("\x00\r\n \t") != "" or not texto_limpo.strip():
+        raise ValueError(
+            f"'{nome_arquivo}' parece corrompido: contém bytes nulos (0x00) misturados "
+            "com dados (não apenas no final), então não é seguro recuperar automaticamente. "
+            "Reexporte o arquivo original e tente importar novamente."
+        )
+    aviso = (
+        f"'{nome_arquivo}' tinha {len(cauda)} byte(s) nulos (0x00) corrompidos no final "
+        "(provavelmente de uma gravação/cópia interrompida). Esse trecho foi descartado "
+        "automaticamente e os dados válidos antes dele foram importados normalmente. "
+        "Recomenda-se reexportar o arquivo original para confirmar que nada foi perdido."
+    )
+    return texto_limpo, aviso
+
+
 def _parse_bool_flag(valor: str) -> Optional[bool]:
     """Converte flags do AGHU em booleano. Retorna None se indeterminado."""
     v = str(valor).strip().upper()
@@ -143,8 +176,23 @@ def _mapear_linha(linha: dict[str, str]) -> dict:
     return resultado
 
 
+def _normalizar_busca(texto: str) -> str:
+    """Remove acentos/diacríticos e normaliza para maiúsculas.
+
+    CORRIGIDO (auditoria técnica): a busca por especialidade (e demais
+    campos textuais) comparava apenas em maiúsculas (`.upper()`), então
+    buscar "obstetricia" (sem acento) não encontrava "Obstetrícia" no CSV.
+    Usando NFKD + remoção dos caracteres combinantes (acentos), a busca
+    passa a ignorar tanto caixa quanto acentuação nos dois lados da
+    comparação (termo buscado e valor do CSV).
+    """
+    sem_acento = unicodedata.normalize("NFKD", texto)
+    sem_acento = "".join(c for c in sem_acento if not unicodedata.combining(c))
+    return sem_acento.strip().upper()
+
+
 def _situacao_normalizada(situacao: str) -> str:
-    return situacao.strip().upper().replace("Ç", "C").replace("Ã", "A")
+    return _normalizar_busca(situacao)
 
 
 class ConsultaAghuCsvProvider:
@@ -153,6 +201,7 @@ class ConsultaAghuCsvProvider:
     def __init__(self, caminho: Path = Path("data/vw_consultas_2026.csv")) -> None:
         self.caminho = caminho
         self._cache: list[dict] | None = None  # cache das linhas brutas normalizadas
+        self._aviso_corrupcao: str | None = None  # aviso de cauda nula descartada, se houver
 
     # ── Leitura base ──────────────────────────────────────────────────────────
 
@@ -166,6 +215,39 @@ class ConsultaAghuCsvProvider:
 
         encoding = _detectar_encoding(self.caminho)
         texto = self.caminho.read_text(encoding=encoding)
+
+        # CORRIGIDO: um arquivo corrompido (ex.: gravação interrompida, cópia
+        # truncada) pode ficar com um grande trecho de bytes nulos (0x00) após
+        # os dados reais — o tamanho do arquivo no disco fica enorme, mas o
+        # conteúdo válido é só o início. Sem essa checagem, o código seguia
+        # tentando processar o arquivo inteiro (round-trip de mojibake +
+        # parsing CSV) e acabava estourando em "_csv.Error: line contains
+        # NUL", uma exceção que não é ValueError/KeyError e por isso não era
+        # tratada em nenhum lugar — toda requisição que dependesse de
+        # consultas voltava a refazer esse trabalho pesado (sem cache, já que
+        # a leitura nunca chegava a ter sucesso) e travava/derrubava o app.
+        # Verificamos isso ANTES do round-trip de mojibake para falhar rápido
+        # em vez de gastar tempo/memória processando bytes inválidos. Quando o
+        # bloco nulo é só uma cauda final (caso comum), recuperamos o prefixo
+        # válido em vez de rejeitar o arquivo inteiro — ver _tratar_bytes_nulos.
+        if "\x00" in texto:
+            texto, self._aviso_corrupcao = _tratar_bytes_nulos(texto, self.caminho.name)
+            # Autocura: grava a versão limpa de volta no arquivo, removendo a
+            # cauda de bytes nulos do disco. Sem isso, o arquivo continuaria
+            # gigante/corrompido para sempre e cada leitura reprocessaria o
+            # mesmo truncamento — exatamente o desperdício identificado na
+            # auditoria original (sem ganho de cache, reprocessamento caro
+            # repetido). No fluxo de importação, `self.caminho` é o arquivo
+            # temporário ainda não publicado, então isso limpa o arquivo
+            # antes mesmo dele se tornar o arquivo ativo.
+            # NOTA: "utf-8-sig" é o encoding de LEITURA (aceita BOM ou não);
+            # se usado para escrita, sempre adiciona um BOM novo, mesmo que o
+            # arquivo original nunca tivesse um. Por isso gravamos sempre como
+            # "utf-8" puro (texto já vem sem BOM, pois o decode utf-8-sig o
+            # remove) — evita introduzir um BOM espúrio durante a autocura.
+            encoding_escrita = "utf-8" if encoding == "utf-8-sig" else encoding
+            self.caminho.write_text(texto, encoding=encoding_escrita)
+
         texto = _corrigir_mojibake(texto)
 
         if not texto.strip():
@@ -176,14 +258,24 @@ class ConsultaAghuCsvProvider:
 
         reader = csv.DictReader(io.StringIO(texto), delimiter=sep)
         linhas = []
-        for row in reader:
-            linha_norm = {_normalizar_coluna(k): (v.strip() if v else "") for k, v in row.items()}
-            linhas.append(linha_norm)
+        try:
+            for row in reader:
+                linha_norm = {_normalizar_coluna(k): (v.strip() if v else "") for k, v in row.items()}
+                linhas.append(linha_norm)
+        except csv.Error as e:
+            # Rede de segurança: qualquer outro problema estrutural do CSV
+            # (ex.: aspas não fechadas) também deve virar um erro tratável em
+            # vez de subir cru e derrubar a requisição.
+            raise ValueError(f"'{self.caminho.name}' não pôde ser interpretado como CSV: {e}")
 
-        if not linhas:
-            raise ValueError(f"Arquivo CSV sem linhas de dados: {self.caminho}")
-
-        self._validar_colunas(linhas)
+        # CORRIGIDO: cabeçalho presente mas 0 linhas de dados é um estado
+        # válido (ex.: arquivo recém-resetado via
+        # /api/importacao/reset/consultas, antes de uma nova importação) —
+        # não só "arquivo corrompido/vazio". Erro real de arquivo sem nem
+        # cabeçalho já foi pego acima por `if not texto.strip()`. Sem linhas,
+        # não há nada a validar contra COLUNAS_OBRIGATORIAS.
+        if linhas:
+            self._validar_colunas(linhas)
 
         logger.info(
             "%s carregado: %d linhas (encoding=%s, sep='%s')",
@@ -223,19 +315,23 @@ class ConsultaAghuCsvProvider:
 
         filtradas = []
         for linha in linhas:
-            if especialidade and especialidade.upper() not in linha.get("Especialidade", "").upper():
+            # CORRIGIDO (auditoria técnica): comparações abaixo usam
+            # _normalizar_busca() (ignora maiúsculas/minúsculas E acentos)
+            # em vez de .upper() puro, para que "cardiologia", "CARDIOLOGIA"
+            # e "Cardiología" encontrem o mesmo resultado.
+            if especialidade and _normalizar_busca(especialidade) not in _normalizar_busca(linha.get("Especialidade", "")):
                 continue
-            if unidade_funcional and unidade_funcional.upper() not in linha.get("Unidade_Funcional", "").upper():
+            if unidade_funcional and _normalizar_busca(unidade_funcional) not in _normalizar_busca(linha.get("Unidade_Funcional", "")):
                 continue
-            if profissional and profissional.upper() not in (linha.get("Profissional", "") or linha.get("Profissional_Grade", "")).upper():
+            if profissional and _normalizar_busca(profissional) not in _normalizar_busca(linha.get("Profissional", "") or linha.get("Profissional_Grade", "")):
                 continue
-            if turno and turno.upper() not in linha.get("Turno", "").upper():
+            if turno and _normalizar_busca(turno) not in _normalizar_busca(linha.get("Turno", "")):
                 continue
-            if dia_semana and dia_semana.upper() not in linha.get("Dia_da_Semana", "").upper():
+            if dia_semana and _normalizar_busca(dia_semana) not in _normalizar_busca(linha.get("Dia_da_Semana", "")):
                 continue
             if situacao_consulta:
                 sit = _situacao_normalizada(linha.get("Situacao_Consulta", ""))
-                if situacao_consulta.upper() not in sit:
+                if _normalizar_busca(situacao_consulta) not in sit:
                     continue
             if apenas_excedentes and _parse_bool_flag(linha.get("Consulta_Excedente", "")) is not True:
                 continue
@@ -271,6 +367,8 @@ class ConsultaAghuCsvProvider:
         sem_grade = sum(1 for linha in linhas if not linha.get("Grade"))
 
         avisos = []
+        if self._aviso_corrupcao:
+            avisos.append(self._aviso_corrupcao)
         if sem_data:
             avisos.append(f"Existem {sem_data} consultas sem data/hora")
         if sem_grade:

@@ -15,10 +15,23 @@
           <option value="">Todos os turnos</option>
           <option v-for="t in TURNOS" :key="t">{{ t }}</option>
         </select>
+        <Button @click="buscar" :loading="store.carregando" variant="primary" class="!py-1.5 !px-4 !text-sm">
+          {{ store.carregando ? 'Buscando…' : 'Buscar' }}
+        </Button>
+        <Button @click="verificarDuplicadas" :loading="verificandoDuplicadas" variant="default" class="!py-1.5 !px-4 !text-sm">
+          {{ verificandoDuplicadas ? 'Verificando…' : 'Verificar grades duplicadas' }}
+        </Button>
       </div>
     </div>
 
-    <Card>
+    <!-- Carregando: mesma UX da página de Consultas, para deixar claro que os
+         dados estão sendo (re)carregados em vez de parecer que os filtros
+         estão travados/sem resposta. -->
+    <div v-if="store.carregando" class="flex justify-center py-12">
+      <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-paper-primary"></div>
+    </div>
+
+    <Card v-else>
       <div v-if="gradesFiltradas.length === 0" class="text-center text-gray-400 py-12">
         <AcademicCapIcon class="h-12 w-12 mx-auto mb-3 opacity-30" />
         <p>Nenhuma grade encontrada. Importe um arquivo <code>grades.csv</code>.</p>
@@ -53,8 +66,8 @@
               </td>
               <td class="px-4 py-3 text-center">{{ grade.qtd_salas_necessarias }}</td>
               <td class="px-4 py-3">
-                <span v-if="store.getAlocacaoPorGrade(grade.id)">
-                  Sala {{ store.getSala(store.getAlocacaoPorGrade(grade.id)!.sala_id)?.numero ?? '?' }}
+                <span v-if="store.getAlocacaoPorGrade(grade.id, grade.dia_semana, grade.turno)">
+                  Sala {{ store.getSala(store.getAlocacaoPorGrade(grade.id, grade.dia_semana, grade.turno)!.sala_id)?.numero ?? '?' }}
                 </span>
                 <span v-else class="text-red-500 font-semibold">Sem sala ⚠</span>
               </td>
@@ -90,15 +103,37 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { AcademicCapIcon } from '@heroicons/vue/24/outline';
 import { useSaaStore, type Grade } from '../stores/saa';
+import { contemSemAcento } from '../utils/texto';
+import { useToast } from 'vue-toastification';
 import Card from '../components/Card.vue';
 import Button from '../components/Button.vue';
 import Modal from '../components/Modal.vue';
 import EditarAlocacao from '../components/EditarAlocacao.vue';
 
 const store = useSaaStore();
+const toast = useToast();
+
+// CORRIGIDO (auditoria técnica): faltava buscar os dados da API ao montar
+// a tela — sem isso, a tabela aparecia vazia em um acesso direto a
+// /saa/grades (ex.: após refresh), mesmo havendo grades já importadas.
+// `buscar()` também é exposta via botão "Buscar" (paridade com a página de
+// Consultas) para reler os dados do backend após uma nova importação, sem
+// precisar recarregar a página inteira.
+async function buscar() {
+  await Promise.all([
+    store.buscarGrades(),
+    store.buscarSalas(),
+    store.buscarAlocacoes(),
+    store.buscarConflitos(),
+  ]);
+}
+
+onMounted(() => {
+  buscar();
+});
 
 const DIAS   = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const TURNOS = ['Manhã', 'Tarde', 'Noite'];
@@ -106,8 +141,11 @@ const TURNOS = ['Manhã', 'Tarde', 'Noite'];
 const filtros = ref({ especialidade: '', dia: '', turno: '' });
 const gradeEditando = ref<Grade | null>(null);
 
+// CORRIGIDO (auditoria técnica): a busca por especialidade só ignorava
+// maiúsculas/minúsculas — buscar "obstetricia" (sem acento) não encontrava
+// "Obstetrícia". `contemSemAcento` ignora também acentos/diacríticos.
 const gradesFiltradas = computed(() => store.grades.filter(g => {
-  if (filtros.value.especialidade && !g.especialidade.toLowerCase().includes(filtros.value.especialidade.toLowerCase())) return false;
+  if (filtros.value.especialidade && !contemSemAcento(g.especialidade, filtros.value.especialidade)) return false;
   if (filtros.value.dia   && g.dia_semana !== filtros.value.dia)   return false;
   if (filtros.value.turno && g.turno      !== filtros.value.turno) return false;
   return true;
@@ -124,5 +162,29 @@ function badgeTurno(turno: string) {
 
 function editarAlocacaoGrade(grade: Grade) {
   gradeEditando.value = grade;
+}
+
+// Grades não podem se repetir: unicidade = (grade_id, dia_semana, turno).
+// A listagem já deduplica automaticamente no backend — este botão só
+// recalcula e confirma o resultado (não apaga nada de vw_grades.csv, pois
+// os relatórios de capacidade/qualidade do módulo "AGHU: Dados Reais"
+// continuam precisando de todas as linhas originais).
+const verificandoDuplicadas = ref(false);
+async function verificarDuplicadas() {
+  verificandoDuplicadas.value = true;
+  try {
+    const resultado = await store.removerGradesDuplicadas();
+    if (resultado) {
+      if (resultado.duplicadas_normalizadas > 0) {
+        toast.success(resultado.mensagem);
+      } else {
+        toast.info(resultado.mensagem);
+      }
+    } else {
+      toast.error(store.erro ?? 'Erro ao verificar grades duplicadas.');
+    }
+  } finally {
+    verificandoDuplicadas.value = false;
+  }
 }
 </script>

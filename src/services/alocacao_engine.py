@@ -10,6 +10,7 @@ Contrato definido em: SPEC.md / 04-modelo-dados.md
 
 from __future__ import annotations
 import logging
+import unicodedata
 
 from src.models.schemas import Grade, Sala, Alocacao, ResultadoAlocacao, ResultadoMotor
 
@@ -43,26 +44,39 @@ PRIORIDADE_PADRAO = 99
 STATUS_BLOQUEANTES = {"reforma", "manutencao", "bloqueada"}
 
 
+def _normalizar_texto(valor: str | None) -> str:
+    """Normaliza texto para comparacoes robustas com dados AGHU."""
+    if not valor:
+        return ""
+    sem_acentos = unicodedata.normalize("NFKD", valor)
+    sem_acentos = "".join(ch for ch in sem_acentos if not unicodedata.combining(ch))
+    return " ".join(sem_acentos.casefold().split())
+
+
+def _especialidade_contem(grade: Grade, termo: str) -> bool:
+    return _normalizar_texto(termo) in _normalizar_texto(grade.especialidade)
+
+
 # ---------------------------------------------------------------------------
 # Regras Bloqueantes — retornam True se a sala DEVE ser eliminada
 # ---------------------------------------------------------------------------
 
 def _bloqueada_por_status(sala: Sala) -> bool:
     """B1 — Sala em reforma ou manutenção."""
-    return sala.status.lower() in STATUS_BLOQUEANTES
+    return _normalizar_texto(sala.status) in STATUS_BLOQUEANTES
 
 
 def _bloqueada_para_oftalmologia(grade: Grade, sala: Sala) -> bool:
     """B2 — Oftalmologia exige sala com equipamento específico."""
-    if grade.especialidade.lower() == "oftalmologia":
+    if _especialidade_contem(grade, "oftalmologia"):
         return not sala.equipamentos
     return False
 
 
 def _bloqueada_para_ginecologia(grade: Grade, sala: Sala) -> bool:
     """B3 — Ginecologia exige maca ginecológica."""
-    if grade.especialidade.lower() == "ginecologia":
-        equipamentos_normalizados = {e.lower() for e in sala.equipamentos}
+    if _especialidade_contem(grade, "ginecologia"):
+        equipamentos_normalizados = {_normalizar_texto(e) for e in sala.equipamentos}
         return EQUIPAMENTO_MACA_GINECOLOGICA not in equipamentos_normalizados
     return False
 
@@ -114,18 +128,18 @@ def calcular_score(
                                         em alocações anteriores (histórico)
     """
     score = 0
-    especialidade = grade.especialidade.lower()
+    especialidade = _normalizar_texto(grade.especialidade)
 
     # P1 — Especialidade preferencial da sala bate com a grade
     if (
         sala.especialidade_preferencial
-        and sala.especialidade_preferencial.lower() == especialidade
+        and _normalizar_texto(sala.especialidade_preferencial) in especialidade
     ):
         score += PESO_ESPECIALIDADE_PREFERENCIAL
         logger.debug("P1 +%d (especialidade preferencial)", PESO_ESPECIALIDADE_PREFERENCIAL)
 
     # P2/P3 — Ortopedia: bonificação por andar
-    if especialidade == "ortopedia":
+    if _especialidade_contem(grade, "ortopedia"):
         try:
             andar_num = int(sala.andar)
         except ValueError:
@@ -168,7 +182,11 @@ def calcular_score(
 
 def _prioridade_grade(grade: Grade) -> int:
     """Retorna o índice de prioridade da grade (menor = processado primeiro)."""
-    return PRIORIDADE_ESPECIALIDADE.get(grade.especialidade.lower(), PRIORIDADE_PADRAO)
+    especialidade = _normalizar_texto(grade.especialidade)
+    for termo, prioridade in PRIORIDADE_ESPECIALIDADE.items():
+        if termo in especialidade:
+            return prioridade
+    return PRIORIDADE_PADRAO
 
 
 # ---------------------------------------------------------------------------
@@ -247,8 +265,8 @@ def alocar(
     # Filtra grades do dia/turno solicitado
     grades_do_turno = [
         g for g in grades
-        if g.dia_semana.lower() == dia_semana.lower()
-        and g.turno.lower() == turno.lower()
+        if _normalizar_texto(g.dia_semana) == _normalizar_texto(dia_semana)
+        and _normalizar_texto(g.turno) == _normalizar_texto(turno)
     ]
 
     # Ordena por prioridade de restrição física

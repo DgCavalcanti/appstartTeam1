@@ -15,6 +15,23 @@ class Grade(BaseModel):
     qtd_salas_necessarias: int
 
 
+class RemocaoGradesDuplicadasResultado(BaseModel):
+    """Resposta do endpoint que verifica/normaliza grades duplicadas do SAA.
+
+    Unicidade de uma grade = (grade_id, dia_semana, turno). O mesmo grade_id
+    pode legitimamente repetir em dias/turnos diferentes (grade recorrente) —
+    isso NÃO é duplicata. A deduplicação ocorre apenas na camada de
+    adaptação do SAA (GradeAghuDashboardProvider) e nunca apaga linhas do
+    arquivo de origem (vw_grades.csv): os relatórios de capacidade/qualidade
+    do módulo "AGHU: Dados Reais" continuam usando todas as linhas originais,
+    pois cada uma representa uma Condicao_De_Atendimento real e distinta.
+    """
+    total_linhas_brutas: int
+    total_grades_unicas: int
+    duplicadas_normalizadas: int
+    mensagem: str
+
+
 # ── Formato real AGHU (vw_grades.csv) ────────────────────────────────────────
 
 class GradeAghu(BaseModel):
@@ -109,6 +126,15 @@ class ImportacaoResultado(BaseModel):
     avisos: list[str]
 
 
+class ResetResultado(BaseModel):
+    """Resposta de um endpoint de reset (POST /api/importacao/reset/{tipo})."""
+    tipo: str
+    arquivo: str
+    linhas_removidas: int
+    backup: str | None  # caminho do backup criado em data/importados/, se havia algo a salvar
+    mensagem: str
+
+
 class Sala(BaseModel):
     id: str
     numero: str
@@ -137,8 +163,7 @@ class Alocacao(BaseModel):
 
 class ResultadoAlocacao(BaseModel):
     """Resultado da tentativa de alocação de uma única grade pelo motor automático
-    (src/services/alocacao_engine.py — módulo futuro/experimental, ainda não exposto
-    por nenhum endpoint)."""
+    (src/services/alocacao_engine.py), exposto via POST /api/alocacoes/automatica."""
     grade_id: str
     especialidade: str
     profissional: str
@@ -190,6 +215,41 @@ class AjusteAlocacaoResponse(BaseModel):
     alocacao: Alocacao
     conflitos_depois: list[Conflito]
     historico: HistoricoAjuste
+
+
+class CriarAlocacaoRequest(BaseModel):
+    """Cria a primeira alocação de sala para uma grade que ainda não tem
+    nenhuma. grade_id por si só pode ser ambíguo (a mesma grade recorrente
+    repete em dias/turnos diferentes), então dia_semana/turno identificam
+    exatamente qual ocorrência da grade está sendo alocada."""
+    grade_id: str
+    sala_id: str
+    dia_semana: str
+    turno: str
+    justificativa: Optional[str] = None
+
+
+class CriarAlocacaoResponse(BaseModel):
+    alocacao: Alocacao
+    conflitos_depois: list[Conflito]
+    historico: HistoricoAjuste
+
+
+class AlocacaoAutomaticaRequest(BaseModel):
+    dia_semana: str
+    turno: str
+    sobrescrever: bool = False
+
+
+class AlocacaoAutomaticaResponse(BaseModel):
+    dia_semana: str
+    turno: str
+    total_grades: int
+    total_alocadas: int
+    total_sem_alocacao: int
+    alocacoes_persistidas: list[Alocacao]
+    grades_sem_alocacao: list[str]
+    conflitos: list[Conflito]
 
 
 class DashboardResumo(BaseModel):

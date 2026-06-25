@@ -92,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { BuildingOfficeIcon } from '@heroicons/vue/24/outline';
 import { useSaaStore, type Sala } from '../stores/saa';
 import Card from '../components/Card.vue';
@@ -101,6 +101,15 @@ import Modal from '../components/Modal.vue';
 import DetalhesSala from '../components/DetalhesSala.vue';
 
 const store = useSaaStore();
+
+// CORRIGIDO (auditoria técnica): faltava buscar salas/conflitos da API ao
+// montar a tela — ver SaaDashboard.vue para o mesmo problema.
+onMounted(async () => {
+  await Promise.all([
+    store.buscarSalas(),
+    store.buscarConflitos(),
+  ]);
+});
 
 const STATUS_SALAS = [
   { value: 'disponivel', label: 'Disponível' },

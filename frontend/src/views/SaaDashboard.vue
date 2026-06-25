@@ -108,7 +108,7 @@
             {{ STATUS_LABEL[sala.status] }}
           </span>
           <!-- indicador de conflito na sala -->
-          <span v-if="store.getConflitosParaSala(sala.id).length > 0" class="mt-1 text-red-600">⚠</span>
+          <span v-if="conflitosDaSala(sala.id).length > 0" class="mt-1 text-red-600">⚠</span>
         </button>
       </div>
       <!-- Legenda -->
@@ -130,6 +130,9 @@
         Nenhuma grade encontrada para os filtros aplicados.
       </div>
       <div v-else class="w-full overflow-x-auto">
+        <p v-if="gradesNoFiltro.length > LIMITE_GRADES_TABELA" class="mb-3 text-xs text-gray-500">
+          Exibindo {{ LIMITE_GRADES_TABELA }} de {{ gradesNoFiltro.length }} grades. Use os filtros para refinar a visualização.
+        </p>
         <table class="w-full text-sm">
           <thead class="text-xs font-semibold text-gray-500 uppercase border-b border-gray-200 bg-gray-50">
             <tr>
@@ -141,22 +144,22 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <tr v-for="grade in gradesNoFiltro" :key="grade.id" class="hover:bg-gray-50">
+            <tr v-for="grade in gradesTabela" :key="grade.id" class="hover:bg-gray-50">
               <td class="px-4 py-3">{{ grade.especialidade }}</td>
               <td class="px-4 py-3 text-gray-500">{{ grade.profissional }}</td>
               <td class="px-4 py-3">{{ grade.dia_semana }} / {{ grade.turno }}</td>
               <td class="px-4 py-3">
-                <span v-if="store.getAlocacaoPorGrade(grade.id)">
-                  {{ store.getSala(store.getAlocacaoPorGrade(grade.id)!.sala_id)?.numero ?? '—' }}
-                  (Bloco {{ store.getSala(store.getAlocacaoPorGrade(grade.id)!.sala_id)?.bloco ?? '?' }})
+                <span v-if="alocacaoDaGrade(grade)">
+                  {{ salaDaAlocacao(alocacaoDaGrade(grade)!.sala_id)?.numero || '—' }}
+                  (Bloco {{ salaDaAlocacao(alocacaoDaGrade(grade)!.sala_id)?.bloco ?? '?' }})
                 </span>
                 <span v-else class="text-red-500 font-semibold">Sem sala</span>
               </td>
               <td class="px-4 py-3">
                 <span
-                  v-if="store.getConflitosParaGrade(grade.id).length > 0"
+                  v-if="conflitosDaGrade(grade.id).length > 0"
                   class="px-2 py-0.5 rounded bg-red-100 text-red-700 text-xs font-medium"
-                >{{ store.getConflitosParaGrade(grade.id).length }} conflito(s)</span>
+                >{{ conflitosDaGrade(grade.id).length }} conflito(s)</span>
                 <span v-else class="px-2 py-0.5 rounded bg-green-100 text-green-700 text-xs font-medium">OK</span>
               </td>
             </tr>
@@ -174,14 +177,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline';
-import { useSaaStore, type Sala } from '../stores/saa';
+import { useSaaStore, type Sala, type Grade } from '../stores/saa';
 import Card from '../components/Card.vue';
 import Modal from '../components/Modal.vue';
 import DetalhesSala from '../components/DetalhesSala.vue';
 
 const store = useSaaStore();
+
+// CORRIGIDO (auditoria técnica): esta tela nunca buscava dados da API —
+// dependia inteiramente de outra view (ex.: Importar) já ter populado o
+// store na mesma sessão. Em um carregamento direto de /saa (ou refresh da
+// página), os indicadores e a grade visual apareciam vazios mesmo com dados
+// reais persistidos no backend.
+onMounted(async () => {
+  await Promise.all([
+    store.buscarSalas(),
+    store.buscarGrades(),
+    store.buscarAlocacoes(),
+    store.buscarConflitos(),
+    store.buscarResumoDashboard(),
+  ]);
+});
 
 // ── Filtros ───────────────────────────────────────────────────────────────
 const DIAS   = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -202,8 +220,41 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const filtros = ref({ dia: '', turno: '', bloco: '', status: '' });
+const LIMITE_GRADES_TABELA = 200;
 
 const blocos = computed(() => [...new Set(store.salas.map(s => s.bloco))].sort());
+
+const salaPorId = computed(() => new Map(store.salas.map(s => [s.id, s])));
+// CORRIGIDO (auditoria técnica): grade_id por si só pode ser ambíguo (mesma
+// grade recorrente repete em dias/turnos diferentes) — a chave do mapa
+// precisa da tripla (grade_id, dia_semana, turno) para não misturar a
+// alocação de uma ocorrência com a de outra.
+function chaveGrade(gradeId: string, diaSemana: string, turno: string) {
+  return `${gradeId}|${diaSemana}|${turno}`;
+}
+const alocacaoPorGrade = computed(() => new Map(
+  store.alocacoes.map(a => [chaveGrade(a.grade_id, a.dia_semana, a.turno), a])
+));
+const conflitosPorSala = computed(() => {
+  const mapa = new Map<string, typeof store.conflitos>();
+  for (const conflito of store.conflitos) {
+    if (!conflito.sala_id) continue;
+    const lista = mapa.get(conflito.sala_id) ?? [];
+    lista.push(conflito);
+    mapa.set(conflito.sala_id, lista);
+  }
+  return mapa;
+});
+const conflitosPorGrade = computed(() => {
+  const mapa = new Map<string, typeof store.conflitos>();
+  for (const conflito of store.conflitos) {
+    if (!conflito.grade_id) continue;
+    const lista = mapa.get(conflito.grade_id) ?? [];
+    lista.push(conflito);
+    mapa.set(conflito.grade_id, lista);
+  }
+  return mapa;
+});
 
 // Salas filtradas pelo painel
 const salasFiltradas = computed(() => store.salas.filter(s => {
@@ -219,6 +270,8 @@ const gradesNoFiltro = computed(() => store.grades.filter(g => {
   return true;
 }));
 
+const gradesTabela = computed(() => gradesNoFiltro.value.slice(0, LIMITE_GRADES_TABELA));
+
 // Apenas conflitos relevantes para o filtro atual
 const conflitosVisiveis = computed(() => {
   const salaIds = new Set(salasFiltradas.value.map(s => s.id));
@@ -231,7 +284,7 @@ const conflitosVisiveis = computed(() => {
 
 // ── Estilo dos cards de sala ──────────────────────────────────────────────
 function cardClassSala(sala: Sala) {
-  const temConflito = store.getConflitosParaSala(sala.id).length > 0;
+  const temConflito = conflitosDaSala(sala.id).length > 0;
   if (temConflito) return 'bg-red-50 border-red-400 text-red-800';
   switch (sala.status) {
     case 'disponivel': return 'bg-green-50  border-green-400  text-green-800';
@@ -241,6 +294,22 @@ function cardClassSala(sala: Sala) {
     case 'ocupada':    return 'bg-blue-50   border-blue-400   text-blue-800';
     default:           return 'bg-gray-50   border-gray-300   text-gray-700';
   }
+}
+
+function alocacaoDaGrade(grade: Grade) {
+  return alocacaoPorGrade.value.get(chaveGrade(grade.id, grade.dia_semana, grade.turno));
+}
+
+function salaDaAlocacao(salaId: string) {
+  return salaPorId.value.get(salaId);
+}
+
+function conflitosDaSala(salaId: string) {
+  return conflitosPorSala.value.get(salaId) ?? [];
+}
+
+function conflitosDaGrade(gradeId: string) {
+  return conflitosPorGrade.value.get(gradeId) ?? [];
 }
 
 function badgeStatusSala(status: string) {

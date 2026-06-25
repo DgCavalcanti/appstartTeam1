@@ -42,10 +42,13 @@ def conflitos(
     dia_semana: str | None = Query(None),
     turno: str | None = Query(None),
     especialidade: str | None = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     controller: DashboardController = Depends(get_dashboard_controller),
 ):
     try:
-        return controller.conflitos(dia_semana=dia_semana, turno=turno, especialidade=especialidade)
+        todos = controller.conflitos(dia_semana=dia_semana, turno=turno, especialidade=especialidade)
+        return todos[offset: offset + limit]
     except FileNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_424_FAILED_DEPENDENCY, detail=str(e))
     except ValueError as e:
