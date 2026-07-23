@@ -5,7 +5,7 @@ import csv
 import pytest
 from pathlib import Path
 
-from src.providers.implementations.grade_aghu_csv_provider import (
+from src.repositories.implementations.grade_aghu_csv_provider import (
     GradeAghuCsvProvider,
     detect_csv_type,
 )

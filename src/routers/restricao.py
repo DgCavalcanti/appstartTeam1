@@ -4,10 +4,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from src.controllers.restricao_controller import RestricaoController
 from src.models.schemas import Restricao
-from src.providers.implementations.restricao_csv_provider import RestricaoCsvProvider
-from src.providers.interfaces.restricao_provider_interface import RestricaoProviderInterface
+from src.repositories.implementations.restricao_csv_provider import RestricaoCsvProvider
+from src.repositories.interfaces.restricao_provider_interface import RestricaoProviderInterface
+from src.services.restricao_service import RestricaoService
 
 router = APIRouter(prefix="/api/restricoes", tags=["SAA — Restrições"])
 
@@ -19,18 +19,18 @@ def get_restricao_provider() -> RestricaoProviderInterface:
     return RestricaoCsvProvider(caminho=_RESTRICOES_PATH)
 
 
-def get_restricao_controller(
+def get_restricao_service(
     provider: RestricaoProviderInterface = Depends(get_restricao_provider),
-) -> RestricaoController:
-    return RestricaoController(provider)
+) -> RestricaoService:
+    return RestricaoService(provider)
 
 
 @router.get("", response_model=list[Restricao], summary="Listar restrições")
 def listar_restricoes(
-    controller: RestricaoController = Depends(get_restricao_controller),
+    service: RestricaoService = Depends(get_restricao_service),
 ):
     try:
-        return controller.listar_restricoes()
+        return service.listar_restricoes()
     except FileNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_424_FAILED_DEPENDENCY, detail=str(e))
     except ValueError as e:

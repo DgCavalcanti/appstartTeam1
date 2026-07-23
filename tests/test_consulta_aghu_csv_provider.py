@@ -5,7 +5,7 @@ import csv
 import pytest
 from pathlib import Path
 
-from src.providers.implementations.consulta_aghu_csv_provider import (
+from src.repositories.implementations.consulta_aghu_csv_provider import (
     ConsultaAghuCsvProvider,
     _parse_bool_flag,
 )

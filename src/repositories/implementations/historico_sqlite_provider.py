@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from src.models.schemas import Conflito, HistoricoAjuste
-from src.providers.interfaces.historico_provider_interface import HistoricoProviderInterface
+from src.repositories.interfaces.historico_provider_interface import HistoricoProviderInterface
 
 logger = logging.getLogger(__name__)
 

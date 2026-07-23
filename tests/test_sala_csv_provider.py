@@ -5,7 +5,7 @@ import csv
 import pytest
 from pathlib import Path
 
-from src.providers.implementations.sala_csv_provider import SalaCsvProvider
+from src.repositories.implementations.sala_csv_provider import SalaCsvProvider
 
 
 def _escrever_csv(path: Path, linhas: list[dict]) -> None:

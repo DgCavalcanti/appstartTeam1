@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from src.models.schemas import Restricao
-from src.providers.interfaces.restricao_provider_interface import RestricaoProviderInterface
+from src.repositories.interfaces.restricao_provider_interface import RestricaoProviderInterface
 
 logger = logging.getLogger(__name__)
 

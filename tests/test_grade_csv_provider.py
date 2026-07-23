@@ -5,7 +5,7 @@ import csv
 import pytest
 from pathlib import Path
 
-from src.providers.implementations.grade_csv_provider import GradeCsvProvider
+from src.repositories.implementations.grade_csv_provider import GradeCsvProvider
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────

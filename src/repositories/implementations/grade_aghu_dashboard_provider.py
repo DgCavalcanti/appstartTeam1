@@ -22,8 +22,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.models.schemas import Grade, GradeAghu
-from src.providers.implementations.grade_aghu_csv_provider import GradeAghuCsvProvider
-from src.providers.interfaces.grade_provider_interface import GradeProviderInterface
+from src.repositories.implementations.grade_aghu_csv_provider import GradeAghuCsvProvider
+from src.repositories.interfaces.grade_provider_interface import GradeProviderInterface
 
 
 class GradeAghuDashboardProvider(GradeProviderInterface):

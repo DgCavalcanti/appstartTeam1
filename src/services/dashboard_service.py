@@ -1,12 +1,12 @@
 from src.models.schemas import Conflito, DashboardResumo
-from src.providers.interfaces.grade_provider_interface import GradeProviderInterface
-from src.providers.interfaces.historico_provider_interface import AlocacaoSaaProviderInterface
-from src.providers.interfaces.restricao_provider_interface import RestricaoProviderInterface
-from src.providers.interfaces.sala_provider_interface import SalaProviderInterface
+from src.repositories.interfaces.grade_provider_interface import GradeProviderInterface
+from src.repositories.interfaces.sala_provider_interface import SalaProviderInterface
+from src.repositories.interfaces.restricao_provider_interface import RestricaoProviderInterface
+from src.repositories.interfaces.historico_provider_interface import AlocacaoSaaProviderInterface
 from src.services.conflito_service import calcular_conflitos
 
 
-class DashboardController:
+class DashboardService:
 
     def __init__(
         self,
@@ -15,14 +15,14 @@ class DashboardController:
         restricao_provider: RestricaoProviderInterface,
         alocacao_provider: AlocacaoSaaProviderInterface,
     ) -> None:
-        self._grades     = grade_provider
-        self._salas      = sala_provider
+        self._grades = grade_provider
+        self._salas = sala_provider
         self._restricoes = restricao_provider
-        self._alocacoes  = alocacao_provider
+        self._alocacoes = alocacao_provider
 
     def resumo(self) -> DashboardResumo:
-        salas     = self._salas.listar_salas()
-        grades    = self._grades.listar_grades()
+        salas = self._salas.listar_salas()
+        grades = self._grades.listar_grades()
         alocacoes = self._alocacoes.listar_alocacoes()
         restricoes = self._restricoes.listar_restricoes()
         conflitos = calcular_conflitos(grades, salas, restricoes, alocacoes)
@@ -44,11 +44,11 @@ class DashboardController:
         turno: str | None = None,
         especialidade: str | None = None,
     ) -> list[Conflito]:
-        grades     = self._grades.listar_grades()
-        salas      = self._salas.listar_salas()
+        grades = self._grades.listar_grades()
+        salas = self._salas.listar_salas()
         restricoes = self._restricoes.listar_restricoes()
-        alocacoes  = self._alocacoes.listar_alocacoes()
-        todos      = calcular_conflitos(grades, salas, restricoes, alocacoes)
+        alocacoes = self._alocacoes.listar_alocacoes()
+        todos = calcular_conflitos(grades, salas, restricoes, alocacoes)
 
         if dia_semana:
             todos = [c for c in todos if c.dia_semana and c.dia_semana.lower() == dia_semana.lower()]

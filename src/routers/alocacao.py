@@ -15,18 +15,25 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
-from src.controllers.alocacao_controller import AlocacaoController
 from src.models.schemas import (
     Alocacao,
     AjusteAlocacaoRequest,
     AjusteAlocacaoResponse,
     HistoricoAjuste,
 )
-from src.providers.implementations.alocacao_saa_csv_provider import AlocacaoSaaCsvProvider
-from src.providers.implementations.grade_aghu_dashboard_provider import GradeAghuDashboardProvider
-from src.providers.implementations.historico_sqlite_provider import HistoricoSqliteProvider
-from src.providers.implementations.restricao_csv_provider import RestricaoCsvProvider
-from src.providers.implementations.sala_csv_provider import SalaCsvProvider
+from src.repositories.implementations.alocacao_saa_csv_provider import AlocacaoSaaCsvProvider
+from src.repositories.implementations.grade_aghu_dashboard_provider import GradeAghuDashboardProvider
+from src.repositories.implementations.historico_sqlite_provider import HistoricoSqliteProvider
+from src.repositories.implementations.restricao_csv_provider import RestricaoCsvProvider
+from src.repositories.implementations.sala_csv_provider import SalaCsvProvider
+from src.repositories.interfaces.historico_provider_interface import (
+    AlocacaoSaaProviderInterface,
+    HistoricoProviderInterface,
+)
+from src.repositories.interfaces.grade_provider_interface import GradeProviderInterface
+from src.repositories.interfaces.restricao_provider_interface import RestricaoProviderInterface
+from src.repositories.interfaces.sala_provider_interface import SalaProviderInterface
+from src.services.alocacao_service import AlocacaoService
 from src.routers.aghu import _GRADES_PATH
 from src.routers.sala import _SALAS_PATH
 from src.routers.restricao import _RESTRICOES_PATH
@@ -38,8 +45,8 @@ _ALOCACOES_PATH = Path(os.getenv("SAA_ALOCACOES_PATH", "data/alocacoes.csv"))
 _DB_PATH = Path("data/saa.db")
 
 
-def get_alocacao_controller() -> AlocacaoController:
-    return AlocacaoController(
+def get_alocacao_service() -> AlocacaoService:
+    return AlocacaoService(
         alocacao_provider=AlocacaoSaaCsvProvider(
             caminho_alocacoes=_ALOCACOES_PATH,
             caminho_db=_DB_PATH,
@@ -55,10 +62,10 @@ def get_alocacao_controller() -> AlocacaoController:
 def listar_alocacoes(
     dia_semana: str | None = Query(None, description="Filtrar por dia da semana"),
     turno: str | None = Query(None, description="Filtrar por turno"),
-    controller: AlocacaoController = Depends(get_alocacao_controller),
+    service: AlocacaoService = Depends(get_alocacao_service),
 ):
     try:
-        return controller.listar_alocacoes(dia_semana=dia_semana, turno=turno)
+        return service.listar_alocacoes(dia_semana=dia_semana, turno=turno)
     except FileNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_424_FAILED_DEPENDENCY, detail=str(e))
     except ValueError as e:
@@ -77,11 +84,11 @@ def listar_alocacoes(
 def ajustar_alocacao(
     req: AjusteAlocacaoRequest,
     x_usuario: str | None = Header(None, alias="X-Usuario"),
-    controller: AlocacaoController = Depends(get_alocacao_controller),
+    service: AlocacaoService = Depends(get_alocacao_service),
 ):
     usuario = x_usuario or "anonimo"
     try:
-        return controller.ajustar_alocacao(req, usuario=usuario)
+        return service.ajustar_alocacao(req, usuario=usuario)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except FileNotFoundError as e:
@@ -94,6 +101,6 @@ def ajustar_alocacao(
     summary="Histórico de ajustes manuais",
 )
 def listar_historico(
-    controller: AlocacaoController = Depends(get_alocacao_controller),
+    service: AlocacaoService = Depends(get_alocacao_service),
 ):
-    return controller.listar_historico()
+    return service.listar_historico()

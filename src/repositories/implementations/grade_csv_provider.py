@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from src.models.schemas import Grade
-from src.providers.interfaces.grade_provider_interface import GradeProviderInterface
+from src.repositories.interfaces.grade_provider_interface import GradeProviderInterface
 
 logger = logging.getLogger(__name__)
 

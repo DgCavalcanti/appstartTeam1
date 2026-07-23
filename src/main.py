@@ -12,7 +12,7 @@ load_dotenv(Path(__file__).parent.parent / ".env", override=True)
 
 logger = logging.getLogger(__name__)
 
-from .resources.database import DatabaseManager, Base
+from .core.database import DatabaseManager, Base
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

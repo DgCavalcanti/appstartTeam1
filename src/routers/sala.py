@@ -4,10 +4,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from src.controllers.sala_controller import SalaController
 from src.models.schemas import Sala
-from src.providers.implementations.sala_csv_provider import SalaCsvProvider
-from src.providers.interfaces.sala_provider_interface import SalaProviderInterface
+from src.repositories.implementations.sala_csv_provider import SalaCsvProvider
+from src.repositories.interfaces.sala_provider_interface import SalaProviderInterface
+from src.services.sala_service import SalaService
 
 router = APIRouter(prefix="/api/salas", tags=["SAA — Salas"])
 
@@ -21,10 +21,10 @@ def get_sala_provider() -> SalaProviderInterface:
     return SalaCsvProvider(caminho=_SALAS_PATH)
 
 
-def get_sala_controller(
+def get_sala_service(
     provider: SalaProviderInterface = Depends(get_sala_provider),
-) -> SalaController:
-    return SalaController(provider)
+) -> SalaService:
+    return SalaService(provider)
 
 
 @router.get("", response_model=list[Sala], summary="Listar salas")
@@ -32,10 +32,10 @@ def listar_salas(
     bloco: str | None = Query(None),
     status_sala: str | None = Query(None, alias="status"),
     especialidade: str | None = Query(None),
-    controller: SalaController = Depends(get_sala_controller),
+    service: SalaService = Depends(get_sala_service),
 ):
     try:
-        return controller.listar_salas(bloco=bloco, status=status_sala, especialidade=especialidade)
+        return service.listar_salas(bloco=bloco, status=status_sala, especialidade=especialidade)
     except FileNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_424_FAILED_DEPENDENCY, detail=str(e))
     except ValueError as e:
@@ -45,10 +45,10 @@ def listar_salas(
 @router.get("/{sala_id}", response_model=Sala, summary="Buscar sala por ID")
 def buscar_sala(
     sala_id: str,
-    controller: SalaController = Depends(get_sala_controller),
+    service: SalaService = Depends(get_sala_service),
 ):
     try:
-        sala = controller.buscar_sala(sala_id)
+        sala = service.buscar_sala(sala_id)
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     if sala is None:

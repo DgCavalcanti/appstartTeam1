@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from src.models.schemas import Alocacao
-from src.providers.interfaces.historico_provider_interface import AlocacaoSaaProviderInterface
+from src.repositories.interfaces.historico_provider_interface import AlocacaoSaaProviderInterface
 
 logger = logging.getLogger(__name__)
 

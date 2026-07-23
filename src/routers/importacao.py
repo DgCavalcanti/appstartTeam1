@@ -24,14 +24,14 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from src.models.schemas import ImportacaoResultado
-from src.providers.implementations.grade_aghu_csv_provider import (
+from src.repositories.implementations.grade_aghu_csv_provider import (
     GradeAghuCsvProvider,
     detect_csv_type,
 )
-from src.providers.implementations.consulta_aghu_csv_provider import ConsultaAghuCsvProvider
-from src.providers.implementations.sala_csv_provider import SalaCsvProvider
-from src.providers.implementations.restricao_csv_provider import RestricaoCsvProvider
-from src.providers.implementations.alocacao_saa_csv_provider import AlocacaoSaaCsvProvider
+from src.repositories.implementations.consulta_aghu_csv_provider import ConsultaAghuCsvProvider
+from src.repositories.implementations.sala_csv_provider import SalaCsvProvider
+from src.repositories.implementations.restricao_csv_provider import RestricaoCsvProvider
+from src.repositories.implementations.alocacao_saa_csv_provider import AlocacaoSaaCsvProvider
 from src.routers.aghu import _GRADES_PATH, _CONSULTAS_PATH
 from src.routers.sala import _SALAS_PATH
 from src.routers.restricao import _RESTRICOES_PATH
@@ -104,7 +104,7 @@ async def importar_grades_aghu(arquivo: UploadFile = File(...)):
     try:
         provider = GradeAghuCsvProvider(caminho=temporario)
         # valida tipo do CSV
-        from src.providers.implementations.grade_aghu_csv_provider import _ler_csv_aghu
+        from src.repositories.implementations.grade_aghu_csv_provider import _ler_csv_aghu
         linhas, _ = _ler_csv_aghu(temporario)
         if linhas:
             tipo = detect_csv_type(list(linhas[0].keys()))

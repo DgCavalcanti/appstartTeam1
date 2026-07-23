@@ -1,11 +1,9 @@
 from fastapi import APIRouter, Depends
 from typing import List
 
-from ..controllers import paciente_controller
-# Alteração: Importamos apenas a FÁBRICA
 from ..dependencies import get_paciente_provider
-from ..providers.interfaces.paciente_provider_interface import PacienteProviderInterface
-
+from ..repositories.interfaces.paciente_provider_interface import PacienteProviderInterface
+from ..services.paciente_service import PacienteService
 from ..auth.auth import auth_handler
 
 # --- PONTO ÚNICO DE CONFIGURAÇÃO PARA ESTE ROTEADOR ---
@@ -19,20 +17,22 @@ router = APIRouter(
     dependencies=[Depends(auth_handler.decode_token)]
 )
 
+def get_paciente_service(
+    provider: PacienteProviderInterface = Depends(get_paciente_provider(STRATEGY)),
+) -> PacienteService:
+    return PacienteService(provider)
+
 @router.get("", response_model=List[dict])
 async def listar_pacientes(
-    # A mágica acontece aqui:
-    # 1. get_paciente_provider(STRATEGY) retorna a função _get_paciente_csv_provider
-    # 2. FastAPI efetivamente executa Depends(_get_paciente_csv_provider)
-    provider: PacienteProviderInterface = Depends(get_paciente_provider(STRATEGY))
+    service: PacienteService = Depends(get_paciente_service),
 ):
     """Lista todos os pacientes da fonte de dados configurada no roteador."""
-    return await paciente_controller.listar_pacientes(provider)
+    return await service.listar_pacientes()
 
 @router.get("/{codigo}", response_model=dict)
 async def obter_paciente(
     codigo: int,
-    provider: PacienteProviderInterface = Depends(get_paciente_provider(STRATEGY))
+    service: PacienteService = Depends(get_paciente_service),
 ):
     """Obtém um paciente pelo código a partir da fonte de dados configurada no roteador."""
-    return await paciente_controller.obter_paciente_por_codigo(codigo, provider)
+    return await service.obter_paciente_por_codigo(codigo)

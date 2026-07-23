@@ -3,10 +3,10 @@ from typing import Callable
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .providers.interfaces.paciente_provider_interface import PacienteProviderInterface
-from .providers.implementations.paciente_postgres_provider import PacientePostgresProvider
-from .providers.implementations.paciente_csv_provider import PacienteCsvProvider
-from .resources.database import get_aghu_db_session
+from .repositories.interfaces.paciente_provider_interface import PacienteProviderInterface
+from .repositories.implementations.paciente_postgres_provider import PacientePostgresProvider
+from .repositories.implementations.paciente_csv_provider import PacienteCsvProvider
+from .core.database import get_aghu_db_session
 
 # 1. Funções "getter" simples e independentes (privadas por convenção)
 def _get_paciente_postgres_provider(

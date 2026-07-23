@@ -12,8 +12,8 @@ from src.models.schemas import (
     ResumoEspecialidade,
     ResumoDiaTurno,
 )
-from src.providers.implementations.grade_aghu_csv_provider import GradeAghuCsvProvider
-from src.providers.implementations.consulta_aghu_csv_provider import ConsultaAghuCsvProvider
+from src.repositories.implementations.grade_aghu_csv_provider import GradeAghuCsvProvider
+from src.repositories.implementations.consulta_aghu_csv_provider import ConsultaAghuCsvProvider
 from src.services.capacidade_service import (
     calcular_resumo,
     resumo_por_especialidade,

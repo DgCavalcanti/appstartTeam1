@@ -1,8 +1,8 @@
 from src.models.schemas import Sala
-from src.providers.interfaces.sala_provider_interface import SalaProviderInterface
+from src.repositories.interfaces.sala_provider_interface import SalaProviderInterface
 
 
-class SalaController:
+class SalaService:
 
     def __init__(self, provider: SalaProviderInterface) -> None:
         self._provider = provider

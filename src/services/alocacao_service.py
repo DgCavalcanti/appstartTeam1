@@ -1,16 +1,5 @@
-"""
-alocacao_controller.py — Controller de alocações SAA (MVP: sem alocação automática).
-
-Responsabilidades:
-  - Listar alocações com filtros
-  - Processar ajuste manual (POST /api/alocacoes/ajustar)
-  - Exigir justificativa quando há conflito crítico ou operacional
-  - Registrar histórico após ajuste
-"""
-from __future__ import annotations
-
-import uuid
 from datetime import datetime
+import uuid
 
 from src.models.schemas import (
     Alocacao,
@@ -18,17 +7,17 @@ from src.models.schemas import (
     AjusteAlocacaoResponse,
     HistoricoAjuste,
 )
-from src.providers.interfaces.grade_provider_interface import GradeProviderInterface
-from src.providers.interfaces.historico_provider_interface import (
+from src.repositories.interfaces.grade_provider_interface import GradeProviderInterface
+from src.repositories.interfaces.historico_provider_interface import (
     AlocacaoSaaProviderInterface,
     HistoricoProviderInterface,
 )
-from src.providers.interfaces.restricao_provider_interface import RestricaoProviderInterface
-from src.providers.interfaces.sala_provider_interface import SalaProviderInterface
+from src.repositories.interfaces.restricao_provider_interface import RestricaoProviderInterface
+from src.repositories.interfaces.sala_provider_interface import SalaProviderInterface
 from src.services.conflito_service import calcular_conflitos
 
 
-class AlocacaoController:
+class AlocacaoService:
 
     def __init__(
         self,
@@ -38,11 +27,11 @@ class AlocacaoController:
         restricao_provider: RestricaoProviderInterface,
         historico_provider: HistoricoProviderInterface,
     ) -> None:
-        self._alocacoes  = alocacao_provider
-        self._grades     = grade_provider
-        self._salas      = sala_provider
+        self._alocacoes = alocacao_provider
+        self._grades = grade_provider
+        self._salas = sala_provider
         self._restricoes = restricao_provider
-        self._historico  = historico_provider
+        self._historico = historico_provider
 
     def listar_alocacoes(
         self,
@@ -57,7 +46,6 @@ class AlocacaoController:
         return alocacoes
 
     def ajustar_alocacao(self, req: AjusteAlocacaoRequest, usuario: str = "sistema") -> AjusteAlocacaoResponse:
-        # 1. Verificar existência
         alocacao = self._alocacoes.buscar_alocacao(req.alocacao_id)
         if alocacao is None:
             raise ValueError(f"Alocação '{req.alocacao_id}' não encontrada.")
@@ -66,22 +54,17 @@ class AlocacaoController:
         if sala_nova is None:
             raise ValueError(f"Sala '{req.nova_sala_id}' não encontrada.")
 
-        # 2. Carregar contexto atual
-        grades     = self._grades.listar_grades()
-        salas      = self._salas.listar_salas()
+        grades = self._grades.listar_grades()
+        salas = self._salas.listar_salas()
         restricoes = self._restricoes.listar_restricoes()
-        alocacoes  = self._alocacoes.listar_alocacoes()
+        alocacoes = self._alocacoes.listar_alocacoes()
 
-        # 3. Conflitos ANTES
         conflitos_antes = calcular_conflitos(grades, salas, restricoes, alocacoes)
         conflitos_antes_aloc = [
             c for c in conflitos_antes
-            if c.alocacao_id == req.alocacao_id
-            or c.sala_id == alocacao.sala_id
+            if c.alocacao_id == req.alocacao_id or c.sala_id == alocacao.sala_id
         ]
 
-        # 4. Simular mudança
-        sala_anterior_id = alocacao.sala_id
         alocacao_simulada = Alocacao(
             id=alocacao.id,
             grade_id=alocacao.grade_id,
@@ -96,11 +79,9 @@ class AlocacaoController:
         conflitos_depois = calcular_conflitos(grades, salas, restricoes, alocacoes_simuladas)
         conflitos_depois_aloc = [
             c for c in conflitos_depois
-            if c.alocacao_id == req.alocacao_id
-            or c.sala_id == req.nova_sala_id
+            if c.alocacao_id == req.alocacao_id or c.sala_id == req.nova_sala_id
         ]
 
-        # 5. Exigir justificativa se houver conflito crítico ou operacional após a mudança
         tem_conflito_relevante = any(
             c.gravidade in ("critico", "operacional") for c in conflitos_depois_aloc
         )
@@ -109,14 +90,12 @@ class AlocacaoController:
                 "Justificativa obrigatória quando há conflito crítico ou operacional na nova sala."
             )
 
-        # 6. Persistir ajuste
         self._alocacoes.atualizar_alocacao(alocacao_simulada)
 
-        # 7. Registrar histórico
         entrada_historico = HistoricoAjuste(
             id=str(uuid.uuid4()),
             alocacao_id=req.alocacao_id,
-            sala_anterior_id=sala_anterior_id,
+            sala_anterior_id=alocacao.sala_id,
             sala_nova_id=req.nova_sala_id,
             data_hora=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
             usuario=usuario,

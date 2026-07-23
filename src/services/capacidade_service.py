@@ -11,7 +11,7 @@ from src.models.schemas import (
     ResumoEspecialidade,
     ResumoDiaTurno,
 )
-from src.providers.implementations.consulta_aghu_csv_provider import (
+from src.repositories.implementations.consulta_aghu_csv_provider import (
     SITUACOES_BLOQUEIO,
     SITUACOES_LIVRE,
     SITUACOES_MARCADA,

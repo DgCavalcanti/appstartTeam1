@@ -1,8 +1,8 @@
 from src.models.schemas import Grade
-from src.providers.interfaces.grade_provider_interface import GradeProviderInterface
+from src.repositories.interfaces.grade_provider_interface import GradeProviderInterface
 
 
-class GradeController:
+class GradeService:
 
     def __init__(self, provider: GradeProviderInterface) -> None:
         self._provider = provider
