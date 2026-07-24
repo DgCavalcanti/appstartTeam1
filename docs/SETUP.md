@@ -1,95 +1,130 @@
 # Guia de Instalação e Execução
 
-Este guia contém os passos detalhados para configurar e executar os ambientes de desenvolvimento do backend e do frontend.
+Passo a passo para deixar o SAA rodando a partir de um clone limpo, no Windows,
+Linux ou macOS.
 
-## Pré-requisitos
+## 1. Ferramentas necessárias
 
-- Python 3.10 ou superior
-- Node.js 18 ou superior (recomendado via NVM)
-- Git
+| Ferramenta | Versão | Para quê |
+|---|---|---|
+| Python | 3.13+ | Backend |
+| Node.js | 18+ | Frontend |
+| uv | qualquer | Gerencia o ambiente e as dependências Python |
 
-### Dependências do Sistema (Ubuntu/Debian)
-O projeto utiliza bibliotecas modernas que minimizam a necessidade de pacotes do sistema. No entanto, o `build-essential` e o `git` são recomendados:
+Para instalar o `uv`:
+
 ```bash
-sudo apt update && sudo apt install -y build-essential git
+pip install uv
 ```
 
-## 1. Configuração do Backend
+Ou siga as instruções oficiais em <https://docs.astral.sh/uv/>.
 
-Siga estes passos a partir da raiz do repositório. O projeto utiliza o **uv** para gerenciamento ultra-rápido de pacotes e ambientes.
+## 2. Dependências
+
+Na raiz do projeto:
 
 ```bash
-# 1. Instale o uv (caso não possua)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. Sincronize o ambiente e dependências
 uv sync
+```
 
-# 3. Configure as variáveis de ambiente
+O `uv` cria o ambiente virtual em `.venv/` e instala tudo — inclusive `pytest` e
+`httpx`, que ficam no grupo `dev`. Não é preciso ativar o ambiente à mão: os
+comandos abaixo usam `uv run`.
+
+Frontend:
+
+```bash
+npm --prefix frontend install
+```
+
+## 3. Variáveis de ambiente
+
+```bash
 cp .env.example .env
-
-# Edite o arquivo .env com suas configurações
-# Dica: Para desenvolvimento offline, use PACIENTE_PROVIDER_TYPE=CSV
-nano .env
 ```
 
-## 2. Configuração do Frontend
-
-Estes passos devem ser executados em um novo terminal.
+No Windows (PowerShell):
 
 ```bash
-# 1. Navegue até a pasta do frontend
-cd frontend
-
-# 2. Instale as dependências e execute
-npm install
-npm run dev
+Copy-Item .env.example .env
 ```
 
-## 3. Executando a Aplicação
+O arquivo tem três variáveis e o padrão já serve para uso local. A única que
+importa é `SQLITE_DSN`, que aponta para o arquivo do banco.
 
-O projeto oferece dois modos principais de execução através de scripts automatizados na raiz:
+## 4. Banco de dados
 
-### A. Modo de Desenvolvimento (`./dev.sh`) - RECOMENDADO
-Inicia o Backend (FastAPI) e o Frontend (Vite) em paralelo.
-- **Vantagem:** Hot Module Replacement (HMR). Alterações no frontend aparecem instantaneamente.
-- **Porta Frontend:** `http://localhost:5173`
-- **Porta Backend:** `http://localhost:8000`
+Não é preciso fazer nada. O backend aplica as migrações do Alembic no startup e
+cria o `saa.db` se ele não existir.
+
+Se quiser aplicar à mão:
 
 ```bash
-chmod +x dev.sh
-./dev.sh
+uv run alembic upgrade head
 ```
 
-### B. Modo Produção Local (`./start.sh`)
-Realiza o build completo do frontend e serve tudo através do FastAPI.
-- **Vantagem:** Simula exatamente o comportamento de produção.
-- **Porta Única:** `http://localhost:8000`
+## 5. Executar
+
+Dois processos, em terminais separados.
+
+**Backend:**
 
 ```bash
-chmod +x start.sh
-./start.sh
+uv run uvicorn src.main:app --port 8000
 ```
 
----
+**Frontend:**
 
-## 4. Comandos Manuais (Troubleshooting)
-
-Caso precise executar partes isoladas ou depurar:
-
-**Backend isolado:**
 ```bash
-uv run uvicorn src.main:app --reload
+npm --prefix frontend run dev
 ```
 
-**Frontend isolado:**
+A aplicação fica em <http://localhost:5173> e a documentação da API em
+<http://localhost:8000/docs>.
+
+O servidor do Vite encaminha `/api` para o backend na porta 8000 — por isso os
+dois precisam estar no ar.
+
+## 6. Testes
+
 ```bash
-cd frontend
-npm run dev
+uv run pytest
 ```
 
-**Gerar Build Manual:**
 ```bash
-cd frontend
-npm run build
+npm --prefix frontend test
 ```
+
+## Problemas comuns
+
+**`ModuleNotFoundError: No module named 'src'`**
+Rode os comandos a partir da raiz do projeto, não de dentro de `src/` ou
+`tests/`.
+
+**A tela carrega mas todas as chamadas dão 404 com "API route not found"**
+O backend não está no ar, ou está rodando uma versão antiga do código. O
+`uvicorn` não recarrega sozinho: se você alterou arquivos em `src/`, reinicie-o.
+Para recarregar automaticamente durante o desenvolvimento, acrescente `--reload`.
+
+**Erro de porta em uso**
+Outro processo está na 8000 ou na 5173. Encerre-o ou troque a porta — se mudar a
+do backend, ajuste também o `proxy` em `frontend/vite.config.ts`.
+
+**`uv sync` remove pacotes que eu tinha instalado**
+É o comportamento esperado: o `uv` deixa o ambiente igual ao declarado no
+`pyproject.toml`. Se precisa de uma biblioteca nova, adicione-a lá em vez de
+instalar direto com `pip`.
+
+**Migração gerada em branco**
+O `alembic revision --autogenerate` compara os modelos com o banco apontado pelo
+`SQLITE_DSN`. Se esse banco já tem as tabelas, ele não encontra diferença e gera
+uma migração vazia. Gere sempre contra um banco limpo:
+
+```bash
+SQLITE_DSN="sqlite+aiosqlite:///tmp_limpo.db" uv run alembic revision --autogenerate -m "descrição"
+```
+
+**O frontend abre mas mostra uma tela antiga**
+O backend também serve um build estático em `src/static/dist`, que pode estar
+desatualizado. Durante o desenvolvimento use sempre a porta 5173 (Vite), não a
+8000.

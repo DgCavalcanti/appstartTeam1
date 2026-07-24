@@ -145,6 +145,29 @@ class TestLeitura:
         assert len(df) == 1
         assert df.iloc[0]["Profissional_Grade"] == "Dr. José"
 
+    def test_le_xlsx(self, tmp_path):
+        # A UI aceita .xlsx, então o caminho do Excel precisa funcionar de fato:
+        # sem o openpyxl instalado ele falha em runtime, não na importação.
+        pd.DataFrame(
+            [
+                {
+                    "Profissional_Grade": "Dr. José",
+                    "Unidade_Funcional": "CARDIOLOGIA",
+                    "Condicao_De_Atendimento": "RETORNO",
+                    "Situacao_Atual_Grade": "Ativo",
+                    "Situacao_Atual_Horario": "Ativo",
+                    "Dia_da_Semana": "Terça",
+                    "Turno": "Manhã",
+                }
+            ]
+        ).to_excel(tmp_path / "grades.xlsx", index=False)
+
+        resultado = importar(tmp_path / "grades.xlsx")
+
+        assert resultado.relatorio.linhas_brutas == 1
+        assert resultado.relatorio.total_slots == 1
+        assert resultado.slots[0].dia == "terca"
+
     def test_le_csv_utf8_com_bom(self, tmp_path):
         arquivo = tmp_path / "grades.csv"
         conteudo = (

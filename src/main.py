@@ -4,6 +4,8 @@ from starlette.responses import FileResponse
 import asyncio
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Carrega as variáveis de ambiente do arquivo .env
@@ -62,10 +64,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Serve o frontend Vue 3 empacotado
-app.mount("/assets", StaticFiles(directory="src/static/dist/assets"), name="assets")
-# Outros arquivos estáticos na raiz do dist (como favicon.ico)
-app.mount("/static", StaticFiles(directory="src/static/dist"), name="static")
+# Frontend Vue 3 empacotado. É artefato de build e não vai para o repositório,
+# então só montamos o que existe: num clone limpo, `StaticFiles` apontando para
+# um diretório ausente derruba a aplicação já na importação, e o backend nem
+# chegaria a subir. Em desenvolvimento o Vite serve o frontend na porta 5173.
+DIST = Path("src/static/dist")
+
+if (DIST / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
+if DIST.is_dir():
+    app.mount("/static", StaticFiles(directory=DIST), name="static")
 
 from .routers import cenarios, importacao
 app.include_router(importacao.router)
@@ -81,10 +89,18 @@ async def serve_frontend(full_path: str):
     if full_path.startswith("api"):
         raise HTTPException(status_code=404, detail="API route not found")
 
-    index_path = os.path.join("src", "static", "dist", "index.html")
-    if os.path.exists(index_path):
+    index_path = DIST / "index.html"
+    if index_path.exists():
         return FileResponse(index_path)
-    return {"error": "Frontend build not found"}
+
+    # Sem build empacotado. Em desenvolvimento isso é o normal — quem chegou
+    # aqui provavelmente abriu a porta do backend em vez da do Vite.
+    return {
+        "erro": "O frontend não está empacotado neste servidor.",
+        "em_desenvolvimento": "Abra http://localhost:5173 (servidor do Vite).",
+        "api": "A documentação da API está em /docs.",
+        "para_empacotar": "npm --prefix frontend run build",
+    }
 
 if __name__ == "__main__":
     import uvicorn
