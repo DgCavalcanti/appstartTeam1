@@ -16,14 +16,23 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.alocacao import EntradaAlocacao, SolverHeuristico
 from src.domain.entidades import TURNOS, Pavimento as PavimentoDominio
 from src.domain.importacao import Catalogo, importar, para_clinicas
 from src.domain.importacao.leitor import ErroDeLeitura
+from src.models.saa import Alocacao
 from src.repositories import AlocacaoRepository, CatalogoRepository, PavimentoEntrada
 from src.resources.database import get_app_db_session
+from src.services import (
+    AlocacaoService,
+    GradesService,
+    PanoramaService,
+    ProcessoService,
+    RestricoesService,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cenarios", tags=["Cenários"])
@@ -238,8 +247,267 @@ async def excluir_cenario(
 
 
 # ---------------------------------------------------------------------------
+# Etapas — a máquina de estados (seção 7)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{cenario_id}/etapas", summary="Status das 6 etapas")
+async def listar_etapas(
+    cenario_id: int, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    cenario = await _carregar(sessao, cenario_id)
+    return {
+        "etapa_atual": cenario.etapa_atual,
+        "status": cenario.status,
+        "etapas": ProcessoService(sessao).resumo(cenario),
+    }
+
+
+@router.post("/{cenario_id}/etapas/{numero}", summary="Ir para uma etapa")
+async def ir_para_etapa(
+    cenario_id: int, numero: int, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    cenario = await _carregar(sessao, cenario_id)
+    processo = ProcessoService(sessao)
+    try:
+        await processo.ir_para(cenario, numero)
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
+    await sessao.commit()
+    return {"etapa_atual": cenario.etapa_atual, "etapas": processo.resumo(cenario)}
+
+
+@router.post("/{cenario_id}/concluir", summary="Concluir o cenário")
+async def concluir_cenario(
+    cenario_id: int, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    cenario = await _carregar(sessao, cenario_id)
+    try:
+        await ProcessoService(sessao).concluir(cenario)
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(erro))
+    await sessao.commit()
+    return {"status": cenario.status}
+
+
+# ---------------------------------------------------------------------------
+# Etapa 2 — grades
+# ---------------------------------------------------------------------------
+
+
+class CelulaGrade(BaseModel):
+    unidade_id: int
+    dia: str
+    turno: str
+    quantidade: int
+
+
+class EdicaoGrades(BaseModel):
+    """Edição em lote: só as células alteradas."""
+
+    celulas: list[CelulaGrade] = Field(default_factory=list)
+    participacao: dict[int, bool] = Field(default_factory=dict)
+
+
+@router.get("/{cenario_id}/grades", summary="Ler a planilha de grades")
+async def ler_grades(
+    cenario_id: int, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    cenario = await _carregar(sessao, cenario_id)
+    servico = GradesService(sessao)
+    return {
+        "turnos": [{"dia": d, "periodo": t} for d, t in TURNOS],
+        "unidades": servico.ler(cenario),
+        "totais_por_turno": servico.totais_por_turno(cenario),
+    }
+
+
+@router.put("/{cenario_id}/grades", summary="Editar grades em lote")
+async def editar_grades(
+    cenario_id: int,
+    edicao: EdicaoGrades,
+    sessao: AsyncSession = Depends(get_app_db_session),
+):
+    cenario = await _carregar(sessao, cenario_id)
+    servico = GradesService(sessao)
+    try:
+        for celula in edicao.celulas:
+            await servico.editar_demanda(
+                cenario, celula.unidade_id, celula.dia, celula.turno, celula.quantidade
+            )
+        for unidade_id, participa in edicao.participacao.items():
+            await servico.definir_participacao(cenario, unidade_id, participa)
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
+
+    await sessao.commit()
+    return {
+        "unidades": servico.ler(cenario),
+        "totais_por_turno": servico.totais_por_turno(cenario),
+        "etapas": ProcessoService(sessao).resumo(cenario),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Etapa 3 — panorama de salas
+# ---------------------------------------------------------------------------
+
+
+class EdicaoPavimento(BaseModel):
+    pavimento_id: int
+    contagens: dict[str, int]
+
+
+@router.get("/{cenario_id}/panorama", summary="Ler o panorama de salas")
+async def ler_panorama(
+    cenario_id: int, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    cenario = await _carregar(sessao, cenario_id)
+    servico = PanoramaService(sessao)
+    return {
+        "pavimentos": servico.ler(cenario),
+        "capacidade_total": servico.capacidade_total(cenario),
+    }
+
+
+@router.put("/{cenario_id}/panorama", summary="Editar o panorama em lote")
+async def editar_panorama(
+    cenario_id: int,
+    edicoes: list[EdicaoPavimento],
+    sessao: AsyncSession = Depends(get_app_db_session),
+):
+    cenario = await _carregar(sessao, cenario_id)
+    servico = PanoramaService(sessao)
+    try:
+        for edicao in edicoes:
+            await servico.editar(cenario, edicao.pavimento_id, edicao.contagens)
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
+
+    await sessao.commit()
+    return {
+        "pavimentos": servico.ler(cenario),
+        "capacidade_total": servico.capacidade_total(cenario),
+        "etapas": ProcessoService(sessao).resumo(cenario),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Etapa 4 — obrigatoriedades e preferências
+# ---------------------------------------------------------------------------
+
+
+class NovaRestricao(BaseModel):
+    unidade_id: int
+    pavimento_id: int
+    tipo: str
+
+
+@router.get("/{cenario_id}/restricoes", summary="Listar restrições")
+async def ler_restricoes(
+    cenario_id: int, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    cenario = await _carregar(sessao, cenario_id)
+    return {"restricoes": RestricoesService(sessao).listar(cenario)}
+
+
+@router.post(
+    "/{cenario_id}/restricoes",
+    status_code=status.HTTP_201_CREATED,
+    summary="Definir obrigatoriedade ou preferência",
+)
+async def definir_restricao(
+    cenario_id: int,
+    nova: NovaRestricao,
+    sessao: AsyncSession = Depends(get_app_db_session),
+):
+    cenario = await _carregar(sessao, cenario_id)
+    servico = RestricoesService(sessao)
+    try:
+        await servico.definir(cenario, nova.unidade_id, nova.pavimento_id, nova.tipo)
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
+
+    await sessao.commit()
+    return {"restricoes": servico.listar(cenario)}
+
+
+@router.delete(
+    "/{cenario_id}/restricoes/{restricao_id}", summary="Remover uma restrição"
+)
+async def remover_restricao(
+    cenario_id: int,
+    restricao_id: int,
+    sessao: AsyncSession = Depends(get_app_db_session),
+):
+    cenario = await _carregar(sessao, cenario_id)
+    servico = RestricoesService(sessao)
+    if not await servico.remover(cenario, restricao_id):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"restrição {restricao_id} não encontrada"
+        )
+    await sessao.commit()
+    return {"restricoes": servico.listar(cenario)}
+
+
+# ---------------------------------------------------------------------------
+# Etapas 5 e 6 — executar e ajustar
+# ---------------------------------------------------------------------------
+
+
+class AjusteManual(BaseModel):
+    unidade_id: int
+    dia: str
+    turno: str
+    qtd_alocada: int
+
+
+@router.post("/{cenario_id}/alocar", summary="Executar o motor de alocação")
+async def alocar(cenario_id: int, sessao: AsyncSession = Depends(get_app_db_session)):
+    cenario = await _carregar(sessao, cenario_id)
+    try:
+        await AlocacaoService(sessao).executar(cenario)
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
+
+    await sessao.commit()
+    sessao.expunge_all()
+    return await _detalhar(AlocacaoRepository(sessao), cenario_id)
+
+
+@router.put("/{cenario_id}/resultado", summary="Ajuste manual do resultado")
+async def ajustar_resultado(
+    cenario_id: int,
+    ajustes: list[AjusteManual],
+    sessao: AsyncSession = Depends(get_app_db_session),
+):
+    cenario = await _carregar(sessao, cenario_id)
+    servico = AlocacaoService(sessao)
+    try:
+        for ajuste in ajustes:
+            await servico.ajustar(
+                cenario, ajuste.unidade_id, ajuste.dia, ajuste.turno, ajuste.qtd_alocada
+            )
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
+
+    await sessao.commit()
+    sessao.expunge_all()
+    return await _detalhar(AlocacaoRepository(sessao), cenario_id)
+
+
+# ---------------------------------------------------------------------------
 # Auxiliares
 # ---------------------------------------------------------------------------
+
+
+async def _carregar(sessao: AsyncSession, cenario_id: int) -> Alocacao:
+    cenario = await AlocacaoRepository(sessao).obter(cenario_id)
+    if cenario is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"cenário {cenario_id} não encontrado"
+        )
+    return cenario
 
 
 async def _detalhar(repo: AlocacaoRepository, cenario_id: int) -> dict:

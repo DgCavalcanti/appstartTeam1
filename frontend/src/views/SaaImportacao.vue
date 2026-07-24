@@ -320,6 +320,10 @@
               <td class="text-right px-2 tabular-nums">{{ c.pavimentos }}</td>
               <td class="px-2 text-xs text-gray-500">{{ c.status }}</td>
               <td class="text-right pl-2 whitespace-nowrap">
+                <router-link
+                  :to="`/saa/cenarios/${c.id}`"
+                  class="text-paper-primary hover:underline text-xs mr-3 font-medium"
+                >abrir</router-link>
                 <button class="text-paper-info hover:underline text-xs mr-3" @click="clonarCenario(c)">
                   clonar
                 </button>
