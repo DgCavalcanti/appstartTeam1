@@ -219,7 +219,9 @@
           </div>
         </div>
 
-        <PlanilhaEditavel :colunas="colunasResultado" :linhas="linhasResultado" />
+        <FiltroAlocacao :linhas="linhasResultado" v-slot="{ filtradas }">
+          <PlanilhaEditavel :colunas="colunasResultado" :linhas="filtradas" />
+        </FiltroAlocacao>
       </div>
     </section>
 
@@ -235,13 +237,14 @@
       <p v-if="!linhasAjuste.length" class="text-gray-400 py-6 text-center">
         Execute a alocação na etapa 5 antes de ajustar.
       </p>
-      <PlanilhaEditavel
-        v-else
-        :colunas="colunasAjuste"
-        :linhas="linhasAjuste"
-        :cor-da-celula="realceAjuste"
-        @editar="ajustar"
-      />
+      <FiltroAlocacao v-else :linhas="linhasAjuste" v-slot="{ filtradas }">
+        <PlanilhaEditavel
+          :colunas="colunasAjuste"
+          :linhas="filtradas"
+          :cor-da-celula="realceAjuste"
+          @editar="ajustar"
+        />
+      </FiltroAlocacao>
     </section>
   </div>
 
@@ -252,6 +255,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
+import FiltroAlocacao from '../components/FiltroAlocacao.vue';
 import PlanilhaEditavel, { type Alteracao, type Coluna } from '../components/PlanilhaEditavel.vue';
 import Stepper, { type EtapaResumo } from '../components/Stepper.vue';
 import api from '../services/api';
@@ -373,7 +377,8 @@ const rodapePanorama = computed(() => ({
 
 const colunasResultado = computed<Coluna[]>(() => [
   { chave: 'nome', rotulo: 'Clínica', largura: '18rem' },
-  { chave: 'pavimento', rotulo: 'Pavimento', largura: '12rem' },
+  { chave: 'pavimento', rotulo: 'Pavimento', largura: '10rem' },
+  { chave: 'bloco', rotulo: 'Bloco', largura: '8rem' },
   ...colunasTurno.value.map(c => ({ ...c, editavel: false })),
   { chave: 'total_alocado', rotulo: 'Total' },
   { chave: 'total_nao_alocado', rotulo: 'Sem sala' },
@@ -381,7 +386,8 @@ const colunasResultado = computed<Coluna[]>(() => [
 
 const colunasAjuste = computed<Coluna[]>(() => [
   { chave: 'nome', rotulo: 'Clínica', largura: '18rem' },
-  { chave: 'pavimento', rotulo: 'Pavimento', largura: '12rem' },
+  { chave: 'pavimento', rotulo: 'Pavimento', largura: '10rem' },
+  { chave: 'bloco', rotulo: 'Bloco', largura: '8rem' },
   ...colunasTurno.value,
   { chave: 'total_nao_alocado', rotulo: 'Sem sala' },
 ]);

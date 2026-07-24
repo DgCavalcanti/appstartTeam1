@@ -582,7 +582,11 @@ async def _detalhar(repo: AlocacaoRepository, cenario_id: int) -> dict:
             {
                 "nome": unidade.unidade_nome,
                 "participa": unidade.participa,
-                "pavimento": destino.nome_completo if destino else None,
+                # Bloco e pavimento (andar) separados — colunas e filtros
+                # distintos na tela; o completo fica para tooltip.
+                "bloco": destino.bloco if destino else None,
+                "pavimento": destino.nome if destino else None,
+                "pavimento_completo": destino.nome_completo if destino else None,
                 "demanda": demanda,
                 "alocado": alocado,
                 "nao_alocado": nao_alocado,

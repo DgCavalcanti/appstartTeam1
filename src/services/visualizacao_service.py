@@ -123,7 +123,7 @@ class VisualizacaoService:
         ]
 
     def _por_clinica(self, cenario: Alocacao) -> list[dict]:
-        pavimentos = {p.id: p.nome_completo for p in cenario.pavimentos}
+        pavimentos = {p.id: p for p in cenario.pavimentos}
         clinicas = []
         for unidade in cenario.unidades:
             if not unidade.participa:
@@ -135,10 +135,15 @@ class VisualizacaoService:
                 alocado[i] = item.qtd_alocada
                 nao_alocado[i] = item.qtd_nao_alocada
 
+            pavimento = pavimentos.get(unidade.pavimento_alocado_id or -1)
             clinicas.append(
                 {
                     "nome": unidade.unidade_nome,
-                    "pavimento": pavimentos.get(unidade.pavimento_alocado_id or -1),
+                    # Bloco e pavimento (andar) separados, para colunas e filtros
+                    # distintos; o completo fica para tooltip e compatibilidade.
+                    "bloco": pavimento.bloco if pavimento else None,
+                    "pavimento": pavimento.nome if pavimento else None,
+                    "pavimento_completo": pavimento.nome_completo if pavimento else None,
                     "alocado": alocado,
                     "nao_alocado": nao_alocado,
                     "total_alocado": sum(alocado),

@@ -15,6 +15,7 @@ import json
 import logging
 import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -118,13 +119,13 @@ async def importar_e_simular(
 
     clinicas = para_clinicas(resultado.demandas)
 
+    dominios = tuple(p.dominio for p in lista_pavimentos)
     alocacao = None
-    if clinicas and lista_pavimentos:
+    if clinicas and dominios:
         alocacao = SolverHeuristico().resolver(
-            EntradaAlocacao(clinicas=clinicas, pavimentos=lista_pavimentos)
+            EntradaAlocacao(clinicas=clinicas, pavimentos=dominios)
         )
 
-    novas = set(_normalizar_nomes(resultado.unidades_novas))
     relatorio = resultado.relatorio
     return {
         "arquivo": nome_original,
@@ -168,11 +169,13 @@ async def importar_e_simular(
     }
 
 
-def _serializar_alocacao(alocacao, pavimentos: tuple[Pavimento, ...]) -> dict | None:
+def _serializar_alocacao(
+    alocacao, pavimentos: tuple[PavimentoPreview, ...]
+) -> dict | None:
     if alocacao is None:
         return None
 
-    nomes = {p.id: p.nome for p in pavimentos}
+    meta = {p.dominio.id: p for p in pavimentos}
     return {
         "total_alocado": alocacao.total_alocado,
         "total_nao_alocado": alocacao.total_nao_alocado,
@@ -181,7 +184,10 @@ def _serializar_alocacao(alocacao, pavimentos: tuple[Pavimento, ...]) -> dict | 
                 "clinica_id": r.clinica_id,
                 "nome": r.nome,
                 "pavimento_id": r.pavimento_id,
-                "pavimento": nomes.get(r.pavimento_id, "?"),
+                # Bloco e andar separados para colunas/filtros; completo p/ tooltip.
+                "bloco": meta[r.pavimento_id].bloco if r.pavimento_id in meta else None,
+                "pavimento": meta[r.pavimento_id].pavimento if r.pavimento_id in meta else None,
+                "pavimento_completo": meta[r.pavimento_id].dominio.nome if r.pavimento_id in meta else "?",
                 "alocado": list(r.alocado),
                 "nao_alocado": list(r.nao_alocado),
                 "total_alocado": r.total_alocado,
@@ -230,9 +236,17 @@ def _lista(bruto: str | None, campo: str) -> list[str]:
     return [str(v) for v in valores]
 
 
+class PavimentoPreview(NamedTuple):
+    """Pavimento do motor mais o bloco e o andar, para a tela separar as colunas."""
+
+    dominio: Pavimento
+    bloco: str
+    pavimento: str
+
+
 async def _pavimentos(
     bruto: str | None, catalogo: CatalogoRepository
-) -> tuple[Pavimento, ...]:
+) -> tuple[PavimentoPreview, ...]:
     """
     Converte as contagens de salas em pavimentos do motor.
 
@@ -267,25 +281,32 @@ async def _pavimentos(
             )
 
     try:
-        return tuple(
-            Pavimento(
-                id=i,
-                nome=str(
-                    entrada.get("nome_completo")
-                    or " — ".join(
-                        parte for parte in (entrada.get("bloco"), entrada.get("nome")) if parte
-                    )
-                    or f"Pavimento {i}"
-                ),
-                capacidade=capacidade_em_estacoes(
-                    padrao_1est=int(entrada.get("padrao_1est", 0)),
-                    padrao_2est=int(entrada.get("padrao_2est", 0)),
-                    esp_1est=int(entrada.get("esp_1est", 0)),
-                    esp_2est=int(entrada.get("esp_2est", 0)),
-                ),
+        preview = []
+        for i, entrada in enumerate(entradas, start=1):
+            bloco = str(entrada.get("bloco") or "")
+            pavimento = str(entrada.get("nome") or f"Pavimento {i}")
+            completo = (
+                entrada.get("nome_completo")
+                or " — ".join(p for p in (bloco, pavimento) if p)
+                or f"Pavimento {i}"
             )
-            for i, entrada in enumerate(entradas, start=1)
-        )
+            preview.append(
+                PavimentoPreview(
+                    dominio=Pavimento(
+                        id=i,
+                        nome=str(completo),
+                        capacidade=capacidade_em_estacoes(
+                            padrao_1est=int(entrada.get("padrao_1est", 0)),
+                            padrao_2est=int(entrada.get("padrao_2est", 0)),
+                            esp_1est=int(entrada.get("esp_1est", 0)),
+                            esp_2est=int(entrada.get("esp_2est", 0)),
+                        ),
+                    ),
+                    bloco=bloco,
+                    pavimento=pavimento,
+                )
+            )
+        return tuple(preview)
     except (AttributeError, TypeError, ValueError) as erro:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

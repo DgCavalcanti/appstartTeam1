@@ -234,38 +234,47 @@
 
       <!-- Clínica → pavimento -->
       <h3 class="text-sm font-semibold text-paper-text mb-2">Clínica → pavimento</h3>
-      <div class="overflow-x-auto max-h-96 overflow-y-auto">
-        <table class="w-full text-sm border-collapse">
-          <thead class="sticky top-0 bg-white">
-            <tr class="text-xs text-gray-500 border-b border-gray-200">
-              <th class="text-left py-2 pr-3 font-medium">Clínica</th>
-              <th class="text-left px-2 font-medium">Pavimento</th>
-              <th v-for="(t, i) in dados.turnos" :key="i" class="px-1 font-medium text-center w-10">
-                {{ rotuloTurno(t) }}
-              </th>
-              <th class="text-right pl-2 font-medium">Total</th>
-              <th class="text-right pl-2 font-medium">Sem sala</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in clinicasOrdenadas" :key="c.clinica_id" class="border-b border-gray-100">
-              <td class="py-2 pr-3 text-paper-text truncate max-w-xs" :title="c.nome">{{ c.nome }}</td>
-              <td class="px-2 text-gray-500 text-xs">{{ c.pavimento }}</td>
-              <td
-                v-for="(q, i) in c.alocado"
-                :key="i"
-                class="text-center px-1 tabular-nums text-xs"
-                :class="q === 0 ? 'text-gray-300' : 'text-paper-text'"
-              >{{ q || '·' }}</td>
-              <td class="text-right pl-2 tabular-nums">{{ c.total_alocado }}</td>
-              <td
-                class="text-right pl-2 tabular-nums"
-                :class="c.total_nao_alocado > 0 ? 'text-paper-danger font-semibold' : 'text-gray-300'"
-              >{{ c.total_nao_alocado || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <FiltroAlocacao :linhas="clinicasOrdenadas" v-slot="{ filtradas }">
+        <div class="overflow-x-auto max-h-96 overflow-y-auto">
+          <table class="w-full text-sm border-collapse">
+            <thead class="sticky top-0 bg-white">
+              <tr class="text-xs text-gray-500 border-b border-gray-200">
+                <th class="text-left py-2 pr-3 font-medium">Clínica</th>
+                <th class="text-left px-2 font-medium">Pavimento</th>
+                <th class="text-left px-2 font-medium">Bloco</th>
+                <th v-for="(t, i) in dados.turnos" :key="i" class="px-1 font-medium text-center w-10">
+                  {{ rotuloTurno(t) }}
+                </th>
+                <th class="text-right pl-2 font-medium">Total</th>
+                <th class="text-right pl-2 font-medium">Sem sala</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in filtradas" :key="c.clinica_id" class="border-b border-gray-100">
+                <td class="py-2 pr-3 text-paper-text truncate max-w-xs" :title="c.nome">{{ c.nome }}</td>
+                <td class="px-2 text-gray-600 text-xs">{{ c.pavimento ?? '—' }}</td>
+                <td class="px-2 text-gray-500 text-xs">{{ c.bloco ?? '—' }}</td>
+                <td
+                  v-for="(q, i) in c.alocado"
+                  :key="i"
+                  class="text-center px-1 tabular-nums text-xs"
+                  :class="q === 0 ? 'text-gray-300' : 'text-paper-text'"
+                >{{ q || '·' }}</td>
+                <td class="text-right pl-2 tabular-nums">{{ c.total_alocado }}</td>
+                <td
+                  class="text-right pl-2 tabular-nums"
+                  :class="c.total_nao_alocado > 0 ? 'text-paper-danger font-semibold' : 'text-gray-300'"
+                >{{ c.total_nao_alocado || '—' }}</td>
+              </tr>
+              <tr v-if="!filtradas.length">
+                <td :colspan="dados.turnos.length + 5" class="py-6 text-center text-gray-400">
+                  Nenhuma clínica corresponde ao filtro.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </FiltroAlocacao>
 
       <!-- Gravar como cenário -->
       <div class="mt-6 pt-4 border-t border-gray-200">
@@ -354,6 +363,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ArrowUpTrayIcon } from '@heroicons/vue/24/outline';
+import FiltroAlocacao from '../components/FiltroAlocacao.vue';
 import api from '../services/api';
 
 interface Turno { dia: string; periodo: string }
@@ -364,7 +374,8 @@ interface Cenario {
 }
 interface Clinica { id: number; nome: string; demanda: number[]; total: number; pico: number }
 interface ResultadoClinica {
-  clinica_id: number; nome: string; pavimento: string;
+  clinica_id: number; nome: string;
+  bloco: string | null; pavimento: string | null;
   alocado: number[]; nao_alocado: number[];
   total_alocado: number; total_nao_alocado: number;
 }
