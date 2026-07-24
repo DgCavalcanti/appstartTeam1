@@ -21,10 +21,14 @@ config = context.config
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False é essencial: as migrações também rodam no
+    # startup da aplicação, e o padrão (True) desligaria os loggers já criados
+    # pelo uvicorn — o servidor subiria e ficaria mudo, sem log de acesso.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
+import src.models  # noqa: F401 — registra as tabelas do SAA em Base.metadata
 from src.resources.database import Base
 target_metadata = Base.metadata
 

@@ -44,3 +44,12 @@ dependencies = [
     "urllib3==2.5.0",
     "uvicorn==0.38.0",
 ]
+
+# Ferramentas de teste. Ficam num grupo à parte para não irem para produção,
+# mas precisam estar declaradas: sem isso, um `uv sync` remove pytest e httpx
+# do ambiente e a suíte simplesmente para de rodar.
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]

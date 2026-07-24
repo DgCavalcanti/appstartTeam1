@@ -1,0 +1,440 @@
+"""
+test_solver_heuristico.py — Testes do motor de alocação (clínica → pavimento).
+
+Cobre as regras da seção 8 do SAA_Arquitetura.pdf e reproduz os três cenários
+de validação que o documento registra sobre os dados reais do HC.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from src.domain.alocacao import (
+    EntradaAlocacao,
+    SolverHeuristico,
+    repartir_turno,
+)
+from src.domain.entidades import (
+    NUM_TURNOS,
+    OBRIGATORIO,
+    PREFERENCIAL,
+    Clinica,
+    Pavimento,
+    Restricao,
+    capacidade_em_estacoes,
+    indice_turno,
+    total_de_salas,
+)
+
+
+# ---------------------------------------------------------------------------
+# Auxiliares
+# ---------------------------------------------------------------------------
+
+#: Turnos de manhã ocupam os índices pares; os de tarde, os ímpares.
+MANHAS = tuple(range(0, NUM_TURNOS, 2))
+TARDES = tuple(range(1, NUM_TURNOS, 2))
+
+
+def demanda_uniforme(q: int) -> tuple[int, ...]:
+    """Mesma demanda nos 10 turnos."""
+    return (q,) * NUM_TURNOS
+
+
+def demanda_em(turnos, q: int) -> tuple[int, ...]:
+    """Demanda `q` apenas nos turnos indicados; zero no resto."""
+    vetor = [0] * NUM_TURNOS
+    for t in turnos:
+        vetor[t] = q
+    return tuple(vetor)
+
+
+def resolver(**kwargs) -> object:
+    return SolverHeuristico().resolver(EntradaAlocacao(**kwargs))
+
+
+# ---------------------------------------------------------------------------
+# Malha de turnos e capacidade
+# ---------------------------------------------------------------------------
+
+
+class TestMalhaDeTurnos:
+
+    def test_dez_turnos(self):
+        assert NUM_TURNOS == 10
+
+    def test_indice_turno_ordem_canonica(self):
+        assert indice_turno("segunda", "manha") == 0
+        assert indice_turno("segunda", "tarde") == 1
+        assert indice_turno("terca", "manha") == 2
+        assert indice_turno("sexta", "tarde") == 9
+
+    def test_indice_turno_normaliza_caixa_e_espacos(self):
+        assert indice_turno("  SEGUNDA ", "Manha") == 0
+
+    def test_sabado_e_noite_sao_rejeitados(self):
+        # Ambos são descartados no pipeline de importação (seção 6).
+        with pytest.raises(ValueError):
+            indice_turno("sabado", "manha")
+        with pytest.raises(ValueError):
+            indice_turno("segunda", "noite")
+
+
+class TestCapacidade:
+
+    def test_sala_de_duas_estacoes_vale_dois(self):
+        assert capacidade_em_estacoes(padrao_2est=3) == 6
+        assert capacidade_em_estacoes(esp_2est=3) == 6
+
+    def test_formula_completa(self):
+        # 1×PADRÃO(1est) + 2×PADRÃO(2est) + 1×ESP(1est) + 2×ESP(2est)
+        assert capacidade_em_estacoes(
+            padrao_1est=4, padrao_2est=2, esp_1est=1, esp_2est=3
+        ) == 4 + 4 + 1 + 6
+
+    def test_relatorio_converte_de_volta_para_salas_fisicas(self):
+        contagens = dict(padrao_1est=4, padrao_2est=2, esp_1est=1, esp_2est=3)
+        assert capacidade_em_estacoes(**contagens) == 15
+        assert total_de_salas(**contagens) == 10
+
+
+# ---------------------------------------------------------------------------
+# Repartição proporcional da sobra
+# ---------------------------------------------------------------------------
+
+
+class TestRepartirTurno:
+
+    def test_exemplo_do_documento(self):
+        # Validação registrada no PDF: Pediatria pede 17 e Oncologia 13 num
+        # pavimento de 9 estações → 5 e 4, cada uma mantendo ~30%.
+        assert repartir_turno([17, 13], 9) == [5, 4]
+
+    def test_quando_cabe_todos_recebem_tudo(self):
+        assert repartir_turno([3, 4], 10) == [3, 4]
+
+    def test_capacidade_exata(self):
+        assert repartir_turno([5, 5], 10) == [5, 5]
+
+    def test_capacidade_zero_nao_aloca_nada(self):
+        assert repartir_turno([3, 2], 0) == [0, 0]
+
+    def test_pavimento_vazio(self):
+        assert repartir_turno([], 5) == []
+
+    def test_nunca_distribui_mais_que_a_capacidade(self):
+        assert sum(repartir_turno([10, 10, 10], 7)) == 7
+
+    def test_nunca_da_a_ninguem_mais_do_que_pediu(self):
+        recebido = repartir_turno([1, 20], 9)
+        assert recebido[0] <= 1
+        assert sum(recebido) == 9
+
+    def test_fracoes_ficam_proximas_entre_si(self):
+        demandas = [17, 13, 11]
+        recebido = repartir_turno(demandas, 12)
+        fracoes = [r / d for r, d in zip(recebido, demandas)]
+        assert max(fracoes) - min(fracoes) < 0.10
+
+
+# ---------------------------------------------------------------------------
+# Cenário 1 do documento — baseline sem restrições
+# ---------------------------------------------------------------------------
+
+
+class TestBaselineSemRestricoes:
+    """Havendo espaço, o motor não pode deixar nenhuma grade de fora."""
+
+    def test_sem_restricoes_nao_sobra_nada(self):
+        clinicas = tuple(
+            Clinica(id=i, nome=f"Clínica {i}", demanda=demanda_uniforme(5))
+            for i in range(1, 7)
+        )
+        pavimentos = tuple(
+            Pavimento(id=i, nome=f"Pavimento {i}", capacidade=10) for i in range(1, 4)
+        )
+
+        resultado = resolver(clinicas=clinicas, pavimentos=pavimentos)
+
+        assert resultado.total_nao_alocado == 0
+        assert resultado.total_alocado == sum(c.total for c in clinicas)
+
+    def test_encaixe_no_limite_exato(self):
+        # 3 clínicas de 10 estações em 3 pavimentos de 10: cabe, sem folga.
+        clinicas = tuple(
+            Clinica(id=i, nome=f"C{i}", demanda=demanda_uniforme(10))
+            for i in range(1, 4)
+        )
+        pavimentos = tuple(
+            Pavimento(id=i, nome=f"P{i}", capacidade=10) for i in range(1, 4)
+        )
+
+        resultado = resolver(clinicas=clinicas, pavimentos=pavimentos)
+
+        assert resultado.total_nao_alocado == 0
+        destinos = {r.pavimento_id for r in resultado.por_clinica}
+        assert len(destinos) == 3, "cada clínica deveria ocupar um pavimento distinto"
+
+    def test_clinicas_complementares_dividem_o_pavimento(self):
+        # Uma cheia de manhã e uma cheia de tarde ocupam bem a mesma caixa —
+        # é exatamente o que o empacotamento vetorial deve encontrar.
+        manha = Clinica(id=1, nome="Só de manhã", demanda=demanda_em(MANHAS, 10))
+        tarde = Clinica(id=2, nome="Só de tarde", demanda=demanda_em(TARDES, 10))
+        pavimentos = (Pavimento(id=1, nome="Único", capacidade=10),)
+
+        resultado = resolver(clinicas=(manha, tarde), pavimentos=pavimentos)
+
+        assert resultado.total_nao_alocado == 0
+        assert resultado.pavimento_da_clinica(1) == resultado.pavimento_da_clinica(2)
+
+
+# ---------------------------------------------------------------------------
+# Cenário 2 do documento — obrigatoriedade forçada
+# ---------------------------------------------------------------------------
+
+
+class TestObrigatoriedade:
+    """Só a obrigatoriedade força — e é a única coisa capaz de gerar sobra."""
+
+    def test_pediatria_e_oncologia_no_pavimento_de_nove_estacoes(self):
+        # Reprodução do cenário do PDF: as duas clínicas são forçadas para o
+        # mesmo pavimento de 9 estações. No pico (segunda-manhã) Pediatria pede
+        # 17 e fica com 5; Oncologia pede 13 e fica com 4.
+        pico = indice_turno("segunda", "manha")
+        pediatria = Clinica(id=1, nome="Pediatria", demanda=demanda_em([pico], 17))
+        oncologia = Clinica(id=2, nome="Oncologia", demanda=demanda_em([pico], 13))
+
+        apertado = Pavimento(id=1, nome="Pavimento de 9", capacidade=9)
+        folgado = Pavimento(id=2, nome="Pavimento amplo", capacidade=40)
+
+        resultado = resolver(
+            clinicas=(pediatria, oncologia),
+            pavimentos=(apertado, folgado),
+            obrigatorias={1: apertado.id, 2: apertado.id},
+        )
+
+        assert resultado.pavimento_da_clinica(1) == apertado.id
+        assert resultado.pavimento_da_clinica(2) == apertado.id
+
+        por_id = {r.clinica_id: r for r in resultado.por_clinica}
+        assert por_id[1].alocado[pico] == 5
+        assert por_id[2].alocado[pico] == 4
+        assert por_id[1].alocado[pico] + por_id[2].alocado[pico] == apertado.capacidade
+
+        # A sobra é o que não coube: 30 pedidas, 9 atendidas.
+        assert resultado.total_nao_alocado == 21
+
+    def test_a_sobra_e_repartida_na_mesma_fracao(self):
+        pico = indice_turno("segunda", "manha")
+        pediatria = Clinica(id=1, nome="Pediatria", demanda=demanda_em([pico], 17))
+        oncologia = Clinica(id=2, nome="Oncologia", demanda=demanda_em([pico], 13))
+        apertado = Pavimento(id=1, nome="Pavimento de 9", capacidade=9)
+
+        resultado = resolver(
+            clinicas=(pediatria, oncologia),
+            pavimentos=(apertado,),
+            obrigatorias={1: 1, 2: 1},
+        )
+
+        por_id = {r.clinica_id: r for r in resultado.por_clinica}
+        fracao_pediatria = por_id[1].alocado[pico] / 17
+        fracao_oncologia = por_id[2].alocado[pico] / 13
+
+        assert abs(fracao_pediatria - fracao_oncologia) < 0.05
+        assert 0.25 < fracao_pediatria < 0.35
+
+    def test_clinica_obrigatoria_nunca_e_movida_pela_melhoria(self):
+        # A obrigatória fica no pavimento apertado mesmo havendo um vazio ao lado.
+        presa = Clinica(id=1, nome="Presa", demanda=demanda_uniforme(20))
+        apertado = Pavimento(id=1, nome="Apertado", capacidade=5)
+        vazio = Pavimento(id=2, nome="Vazio", capacidade=50)
+
+        resultado = resolver(
+            clinicas=(presa,),
+            pavimentos=(apertado, vazio),
+            obrigatorias={1: apertado.id},
+        )
+
+        assert resultado.pavimento_da_clinica(1) == apertado.id
+        assert resultado.total_nao_alocado == (20 - 5) * NUM_TURNOS
+
+
+# ---------------------------------------------------------------------------
+# Cenário 3 do documento — preferência
+# ---------------------------------------------------------------------------
+
+
+class TestPreferencia:
+    """A preferência é um puxão, nunca uma imposição."""
+
+    def test_clinica_vai_para_o_pavimento_preferido(self):
+        clinica = Clinica(id=1, nome="Dermatologia", demanda=demanda_uniforme(4))
+        pav_a = Pavimento(id=1, nome="A", capacidade=10)
+        pav_b = Pavimento(id=2, nome="B", capacidade=10)
+
+        resultado = resolver(
+            clinicas=(clinica,),
+            pavimentos=(pav_a, pav_b),
+            afinidade={(1, pav_b.id): 1.0},
+        )
+
+        assert resultado.pavimento_da_clinica(1) == pav_b.id
+        assert resultado.total_nao_alocado == 0
+
+    def test_preferencia_cede_quando_o_pavimento_esta_cheio(self):
+        # A grande ocupa o pavimento preferido primeiro; a pequena prefere o
+        # mesmo lugar, mas não cabe — e vai para o lado em vez de perder grades.
+        grande = Clinica(id=1, nome="Grande", demanda=demanda_uniforme(10))
+        pequena = Clinica(id=2, nome="Pequena", demanda=demanda_uniforme(4))
+
+        disputado = Pavimento(id=1, nome="Disputado", capacidade=10)
+        alternativo = Pavimento(id=2, nome="Alternativo", capacidade=10)
+
+        resultado = resolver(
+            clinicas=(grande, pequena),
+            pavimentos=(disputado, alternativo),
+            afinidade={(1, disputado.id): 1.0, (2, disputado.id): 1.0},
+        )
+
+        assert resultado.pavimento_da_clinica(1) == disputado.id
+        assert resultado.pavimento_da_clinica(2) == alternativo.id
+        assert resultado.total_nao_alocado == 0, (
+            "um simples desejo nunca pode fazer uma clínica perder atendimentos "
+            "havendo espaço ao lado"
+        )
+
+    def test_afinidade_desempata_sem_criar_sobra(self):
+        # Duas opções servem; a de maior afinidade vence, e ninguém perde grade.
+        clinicas = tuple(
+            Clinica(id=i, nome=f"C{i}", demanda=demanda_uniforme(5))
+            for i in range(1, 3)
+        )
+        pavimentos = tuple(
+            Pavimento(id=i, nome=f"P{i}", capacidade=10) for i in range(1, 4)
+        )
+
+        resultado = resolver(
+            clinicas=clinicas,
+            pavimentos=pavimentos,
+            afinidade={(1, 3): 5.0, (2, 3): 0.0},
+        )
+
+        assert resultado.pavimento_da_clinica(1) == 3
+        assert resultado.total_nao_alocado == 0
+
+
+# ---------------------------------------------------------------------------
+# Invariantes gerais
+# ---------------------------------------------------------------------------
+
+
+class TestInvariantes:
+
+    @staticmethod
+    def _cenario():
+        clinicas = (
+            Clinica(id=1, nome="Manhã pesada", demanda=demanda_em(MANHAS, 12)),
+            Clinica(id=2, nome="Tarde pesada", demanda=demanda_em(TARDES, 11)),
+            Clinica(id=3, nome="Uniforme", demanda=demanda_uniforme(6)),
+            Clinica(id=4, nome="Pequena", demanda=demanda_uniforme(2)),
+            Clinica(id=5, nome="Irregular", demanda=(3, 9, 0, 4, 7, 1, 8, 2, 5, 6)),
+        )
+        pavimentos = (
+            Pavimento(id=1, nome="Térreo", capacidade=14),
+            Pavimento(id=2, nome="1º andar", capacidade=12),
+            Pavimento(id=3, nome="2º andar", capacidade=9),
+        )
+        return clinicas, pavimentos
+
+    def test_toda_clinica_recebe_exatamente_um_pavimento(self):
+        clinicas, pavimentos = self._cenario()
+        resultado = resolver(clinicas=clinicas, pavimentos=pavimentos)
+
+        assert len(resultado.por_clinica) == len(clinicas)
+        assert {r.clinica_id for r in resultado.por_clinica} == {c.id for c in clinicas}
+
+    def test_alocado_mais_nao_alocado_e_igual_a_demanda(self):
+        clinicas, pavimentos = self._cenario()
+        resultado = resolver(clinicas=clinicas, pavimentos=pavimentos)
+        por_id = {c.id: c for c in clinicas}
+
+        for r in resultado.por_clinica:
+            demanda = por_id[r.clinica_id].demanda
+            for t in range(NUM_TURNOS):
+                assert r.alocado[t] + r.nao_alocado[t] == demanda[t]
+                assert r.alocado[t] >= 0
+                assert r.nao_alocado[t] >= 0
+
+    def test_nenhum_pavimento_passa_da_capacidade(self):
+        clinicas, pavimentos = self._cenario()
+        resultado = resolver(clinicas=clinicas, pavimentos=pavimentos)
+
+        for ocupacao in resultado.por_pavimento:
+            for t in range(NUM_TURNOS):
+                assert ocupacao.ocupacao[t] <= ocupacao.capacidade
+
+    def test_resultado_e_deterministico(self):
+        clinicas, pavimentos = self._cenario()
+        primeira = resolver(clinicas=clinicas, pavimentos=pavimentos)
+        segunda = resolver(clinicas=clinicas, pavimentos=pavimentos)
+
+        assert primeira == segunda
+
+    def test_indicadores_de_ocupacao(self):
+        clinica = Clinica(id=1, nome="Meia carga", demanda=demanda_uniforme(5))
+        pavimento = Pavimento(id=1, nome="P", capacidade=10)
+
+        resultado = resolver(clinicas=(clinica,), pavimentos=(pavimento,))
+        ocupacao = resultado.por_pavimento[0]
+
+        assert ocupacao.ocupacao_media == pytest.approx(0.5)
+        assert ocupacao.ocupacao_pico == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# Validação de entrada
+# ---------------------------------------------------------------------------
+
+
+class TestValidacaoDeEntrada:
+
+    def test_demanda_com_numero_errado_de_turnos(self):
+        with pytest.raises(ValueError, match="turnos"):
+            Clinica(id=1, nome="Torta", demanda=(1, 2, 3))
+
+    def test_demanda_negativa(self):
+        with pytest.raises(ValueError, match="negativa"):
+            Clinica(id=1, nome="Negativa", demanda=(-1,) * NUM_TURNOS)
+
+    def test_clinicas_com_id_repetido(self):
+        c = Clinica(id=1, nome="A", demanda=demanda_uniforme(1))
+        d = Clinica(id=1, nome="B", demanda=demanda_uniforme(1))
+        with pytest.raises(ValueError, match="id repetido"):
+            EntradaAlocacao(clinicas=(c, d), pavimentos=(Pavimento(id=1, nome="P", capacidade=5),))
+
+    def test_obrigatoriedade_para_pavimento_inexistente(self):
+        c = Clinica(id=1, nome="A", demanda=demanda_uniforme(1))
+        with pytest.raises(ValueError, match="pavimento inexistente"):
+            EntradaAlocacao(
+                clinicas=(c,),
+                pavimentos=(Pavimento(id=1, nome="P", capacidade=5),),
+                obrigatorias={1: 99},
+            )
+
+    def test_clinicas_sem_pavimento(self):
+        c = Clinica(id=1, nome="A", demanda=demanda_uniforme(1))
+        with pytest.raises(ValueError, match="nenhum pavimento"):
+            EntradaAlocacao(clinicas=(c,), pavimentos=())
+
+    def test_tipo_de_restricao_invalido(self):
+        with pytest.raises(ValueError, match="tipo de restrição"):
+            Restricao(clinica_id=1, pavimento_id=1, tipo="talvez")
+
+    def test_tipos_de_restricao_validos(self):
+        assert Restricao(clinica_id=1, pavimento_id=1, tipo=OBRIGATORIO).tipo == "obrigatorio"
+        assert Restricao(clinica_id=1, pavimento_id=1, tipo=PREFERENCIAL).tipo == "preferencial"
+
+    def test_cenario_vazio(self):
+        resultado = resolver(clinicas=(), pavimentos=(Pavimento(id=1, nome="P", capacidade=5),))
+        assert resultado.por_clinica == ()
+        assert resultado.total_nao_alocado == 0

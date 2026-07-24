@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -26,5 +26,9 @@ export default defineConfig({
         changeOrigin: true,
       },
     }
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
   }
 })

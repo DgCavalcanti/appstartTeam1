@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -8,48 +9,56 @@ from dotenv import load_dotenv
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
 
-from .resources.database import DatabaseManager, Base
+from . import models  # noqa: F401 — registra as tabelas do SAA em Base.metadata
+from .resources.database import DatabaseManager
+
+
+def _aplicar_migracoes() -> None:
+    """
+    Leva o banco até a última revisão do Alembic.
+
+    Roda numa thread separada porque o env.py do Alembic chama asyncio.run(),
+    o que não é permitido de dentro do loop já em execução do FastAPI.
+
+    Deliberadamente NÃO usamos Base.metadata.create_all aqui: ele criaria as
+    tabelas por fora do controle de versão, o que faz o autogenerate comparar
+    contra um banco já atualizado e gerar migrações vazias — um erro silencioso
+    que só aparece quando alguém clona o projeto e fica sem esquema nenhum.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    command.upgrade(Config("alembic.ini"), "head")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     print("Starting up...")
 
-    # Initialize AGHU DB Manager and store in app.state
-    aghu_dsn = os.getenv("POSTGRES_DSN")
-    if aghu_dsn:
-        app.state.aghu_db = DatabaseManager(aghu_dsn)
-        print("AGHU PostgreSQL connection pool initialized.")
-    else:
-        print("WARNING: POSTGRES_DSN not found. Skipping AGHU DB initialization.")
-
-    # Initialize App DB Manager (SQLite) and store in app.state
+    # Banco da aplicação (SQLite) — única persistência do SAA
     app_dsn = os.getenv("SQLITE_DSN")
     if not app_dsn:
         raise ValueError("SQLITE_DSN not found in environment variables.")
+
+    await asyncio.to_thread(_aplicar_migracoes)
+    print("Migrações aplicadas.")
+
     app.state.app_db = DatabaseManager(app_dsn)
     print("App SQLite connection pool initialized.")
-
-    # Create tables for App DB (if they don't exist) - for development only, Alembic handles this in production
-    async with app.state.app_db.engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    print("App SQLite tables checked/created.")
 
     yield
 
     # Shutdown
     print("Shutting down...")
-    if hasattr(app.state, 'aghu_db') and app.state.aghu_db:
-        await app.state.aghu_db.close_connection()
-        print("AGHU PostgreSQL connection pool closed.")
     if hasattr(app.state, 'app_db') and app.state.app_db:
         await app.state.app_db.close_connection()
         print("App SQLite connection pool closed.")
 
 app = FastAPI(
-    title="Esqueleto de Aplicação Web Full-Stack",
-    description="Aplicação Backend monolítica (API REST) em Python/FastAPI, com foco em acesso e agregação de dados heterogêneos.",
-    version="1.0.0",
+    title="SAA — Sistema de Alocação Ambulatorial",
+    description="Alocação de grades de clínicas em pavimentos do HC. Uso local, gestor único.",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -58,15 +67,9 @@ app.mount("/assets", StaticFiles(directory="src/static/dist/assets"), name="asse
 # Outros arquivos estáticos na raiz do dist (como favicon.ico)
 app.mount("/static", StaticFiles(directory="src/static/dist"), name="static")
 
-# Placeholder para incluir os roteadores da API
-from .routers import paciente, auth, admin, aih, bpa, material, alocacao
-app.include_router(paciente.router)
-app.include_router(auth.router)
-app.include_router(admin.router)
-app.include_router(aih.router)
-app.include_router(bpa.router)
-app.include_router(material.router)
-app.include_router(alocacao.router)
+from .routers import cenarios, importacao
+app.include_router(importacao.router)
+app.include_router(cenarios.router)
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
@@ -77,17 +80,11 @@ async def serve_frontend(full_path: str):
     # Se a rota começa com 'api', deixa o roteador do FastAPI lidar
     if full_path.startswith("api"):
         raise HTTPException(status_code=404, detail="API route not found")
-    
+
     index_path = os.path.join("src", "static", "dist", "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
     return {"error": "Frontend build not found"}
-
-# Exemplo:
-# from .routers import aih, bpa, material
-# app.include_router(aih.router)
-# app.include_router(bpa.router)
-# app.include_router(material.router)
 
 if __name__ == "__main__":
     import uvicorn

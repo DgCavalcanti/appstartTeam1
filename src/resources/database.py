@@ -35,14 +35,6 @@ class DatabaseManager:
         """
         await self.engine.dispose()
 
-async def get_aghu_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
-    """
-    Dependency for FastAPI to get an AGHU database session from the app state.
-    """
-    aghu_db_manager: DatabaseManager = request.app.state.aghu_db
-    async for session in aghu_db_manager.get_session():
-        yield session
-
 async def get_app_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency for FastAPI to get an application database session (SQLite) from the app state.
