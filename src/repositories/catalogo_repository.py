@@ -1,8 +1,11 @@
 """
 catalogo_repository.py — Os catálogos globais.
 
-Sobrevivem entre cenários: aprendem unidades novas a cada importação e guardam
-a estrutura do prédio para pré-preencher a próxima alocação.
+Sobrevivem entre cenários: guardam a estrutura real do prédio e a lista de
+unidades funcionais do ambulatório, e aprendem unidades novas a cada importação.
+
+Os dados de referência (mapa do HC e unidades SIM/NÃO) vivem em
+`dados_referencia.py` e são semeados na primeira execução.
 """
 
 from __future__ import annotations
@@ -14,22 +17,11 @@ from sqlalchemy import select
 from src.domain.importacao import normalizar
 from src.models.saa import PavimentoCatalogo, UnidadeCatalogo
 
+# Importado pelo módulo, não pelo pacote: `from src.repositories import ...`
+# reentraria em __init__.py, que ainda está sendo inicializado.
+import src.repositories.dados_referencia as dados_referencia
+
 logger = logging.getLogger(__name__)
-
-
-#: Estrutura do HC usada na primeira execução, quando o catálogo está vazio.
-#: 9 pavimentos, 231 estações por turno — a ordem de grandeza do prédio real.
-PAVIMENTOS_SEMENTE: tuple[dict, ...] = (
-    {"bloco": "Bloco A", "nome": "Térreo",    "padrao_1est": 8,  "padrao_2est": 9,  "esp_1est": 4, "esp_2est": 2},
-    {"bloco": "Bloco A", "nome": "1º andar",  "padrao_1est": 7,  "padrao_2est": 7,  "esp_1est": 2, "esp_2est": 2},
-    {"bloco": "Bloco A", "nome": "2º andar",  "padrao_1est": 6,  "padrao_2est": 7,  "esp_1est": 2, "esp_2est": 2},
-    {"bloco": "Bloco B", "nome": "Térreo",    "padrao_1est": 9,  "padrao_2est": 8,  "esp_1est": 2, "esp_2est": 2},
-    {"bloco": "Bloco B", "nome": "1º andar",  "padrao_1est": 6,  "padrao_2est": 6,  "esp_1est": 2, "esp_2est": 1},
-    {"bloco": "Bloco B", "nome": "2º andar",  "padrao_1est": 7,  "padrao_2est": 7,  "esp_1est": 2, "esp_2est": 1},
-    {"bloco": "Bloco C", "nome": "Térreo",    "padrao_1est": 6,  "padrao_2est": 5,  "esp_1est": 2, "esp_2est": 1},
-    {"bloco": "Bloco C", "nome": "1º andar",  "padrao_1est": 7,  "padrao_2est": 7,  "esp_1est": 4, "esp_2est": 1},
-    {"bloco": "Bloco C", "nome": "2º andar",  "padrao_1est": 5,  "padrao_2est": 5,  "esp_1est": 2, "esp_2est": 1},
-)
 
 
 class CatalogoRepository:
@@ -48,8 +40,9 @@ class CatalogoRepository:
         """
         Registra unidades ainda desconhecidas. Devolve quantas foram criadas.
 
-        Novas entram com `participa_default=True`: o gestor decide na etapa 2
-        quem não ocupa consultório.
+        Uma unidade nova que o AGHU traga e o catálogo não conheça entra
+        participando (`participa_default=True`) e fica visível para o gestor
+        revisar na etapa 2 — é a reconciliação do passo 10 do pipeline.
         """
         existentes = {u.nome_normalizado for u in await self.listar_unidades()}
         criadas = 0
@@ -92,26 +85,80 @@ class CatalogoRepository:
             if not u.participa_default
         )
 
+    async def participacao_padrao(self, nomes: list[str]) -> dict[str, bool]:
+        """
+        Para cada nome informado, se ele participa por padrão segundo o catálogo.
+
+        É o que substitui a antiga heurística do sufixo "(AMBULATÓRIO)": a
+        resposta vem da lista real de unidades do ambulatório. Unidade que o
+        catálogo não conhece entra como participante (será revisada).
+        """
+        por_chave = {u.nome_normalizado: u.participa_default for u in await self.listar_unidades()}
+        return {nome: por_chave.get(normalizar(nome), True) for nome in nomes}
+
     # -- Pavimentos --------------------------------------------------------
 
     async def listar_pavimentos(self) -> list[PavimentoCatalogo]:
         resultado = await self.sessao.execute(
             select(PavimentoCatalogo).order_by(
-                PavimentoCatalogo.bloco, PavimentoCatalogo.nome
+                PavimentoCatalogo.bloco, PavimentoCatalogo.id
             )
         )
         return list(resultado.scalars())
 
-    async def semear_pavimentos(self) -> int:
-        """
-        Popula a estrutura do prédio na primeira execução.
+    # -- Semeadura da referência -------------------------------------------
 
-        Não sobrescreve nada: se o catálogo já tem pavimentos, não faz nada.
+    async def semear_referencia(self) -> dict[str, int]:
         """
+        Popula o catálogo com o mapa do HC e as unidades do ambulatório.
+
+        Semeia cada tabela apenas quando vazia, para não sobrescrever o que o
+        gestor tenha ajustado. Num banco já semeado com dados antigos, apague o
+        arquivo do SQLite para forçar a resemeadura com os dados de referência.
+        """
+        return {
+            "pavimentos": await self._semear_pavimentos(),
+            "unidades": await self._semear_unidades(),
+        }
+
+    async def _semear_pavimentos(self) -> int:
         if await self.listar_pavimentos():
             return 0
-        for entrada in PAVIMENTOS_SEMENTE:
-            self.sessao.add(PavimentoCatalogo(**entrada))
+        for bloco, nome, p1, p2, e1, e2, fec in dados_referencia.PAVIMENTOS:
+            self.sessao.add(
+                PavimentoCatalogo(
+                    bloco=bloco,
+                    nome=nome,
+                    padrao_1est=p1,
+                    padrao_2est=p2,
+                    esp_1est=e1,
+                    esp_2est=e2,
+                    fechada=fec,
+                )
+            )
         await self.sessao.flush()
-        logger.info("catálogo de pavimentos semeado com %d entradas", len(PAVIMENTOS_SEMENTE))
-        return len(PAVIMENTOS_SEMENTE)
+        logger.info(
+            "catálogo de pavimentos semeado: %d pavimentos, %d estações",
+            len(dados_referencia.PAVIMENTOS),
+            dados_referencia.capacidade_total(),
+        )
+        return len(dados_referencia.PAVIMENTOS)
+
+    async def _semear_unidades(self) -> int:
+        if await self.listar_unidades():
+            return 0
+        for nome, participa in dados_referencia.UNIDADES:
+            self.sessao.add(
+                UnidadeCatalogo(
+                    nome=nome,
+                    nome_normalizado=normalizar(nome),
+                    participa_default=participa,
+                )
+            )
+        await self.sessao.flush()
+        logger.info(
+            "catálogo de unidades semeado: %d unidades, %d participam",
+            len(dados_referencia.UNIDADES),
+            dados_referencia.total_participantes(),
+        )
+        return len(dados_referencia.UNIDADES)

@@ -149,6 +149,10 @@ class ResultadoImportacao:
     slots: tuple[GradeSlot, ...]
     demandas: tuple[GradeDemanda, ...]
     relatorio: RelatorioImportacao
+    #: Todas as unidades que apareceram no arquivo, na grafia original, antes de
+    #: qualquer filtro. É o que a etapa 2 lista para o gestor marcar quem
+    #: participa — inclusive as que o catálogo já exclui.
+    unidades_vistas: tuple[str, ...] = field(default_factory=tuple)
     #: Passo 10 — unidades nunca vistas. O gestor decide se entram na alocação.
     unidades_novas: tuple[str, ...] = field(default_factory=tuple)
     #: Passo 10 — condições de atendimento nunca vistas.
@@ -176,6 +180,9 @@ def executar_pipeline(
     """
     catalogo = catalogo or Catalogo.vazio()
     linhas_brutas = len(df)
+
+    # Todas as unidades do arquivo, antes de filtrar — a etapa 2 lista todas.
+    unidades_vistas = _valores_distintos(df, "Unidade_Funcional")
 
     # Passo 10 (detecção) — o que há de novo em relação ao catálogo.
     # Feito sobre o bruto, antes de qualquer filtro: uma unidade nova que seria
@@ -250,6 +257,7 @@ def executar_pipeline(
         slots=slots,
         demandas=demandas,
         relatorio=relatorio,
+        unidades_vistas=unidades_vistas,
         unidades_novas=unidades_novas,
         condicoes_novas=condicoes_novas,
     )
@@ -272,6 +280,18 @@ def _novidades(
     for valor in df[coluna].dropna().unique():
         chave = normalizar(valor)
         if chave and chave not in conhecidos:
+            vistos.setdefault(chave, str(valor).strip())
+    return tuple(sorted(vistos.values()))
+
+
+def _valores_distintos(df: pd.DataFrame, coluna: str) -> tuple[str, ...]:
+    """Valores distintos de uma coluna, na grafia original, deduplicados por forma."""
+    if coluna not in df.columns:
+        return ()
+    vistos: dict[str, str] = {}
+    for valor in df[coluna].dropna().unique():
+        chave = normalizar(valor)
+        if chave:
             vistos.setdefault(chave, str(valor).strip())
     return tuple(sorted(vistos.values()))
 

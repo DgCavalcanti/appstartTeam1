@@ -10,6 +10,7 @@ from src.services.grades_service import GradesService
 from src.services.panorama_service import PanoramaService
 from src.services.processo_service import ProcessoService
 from src.services.restricoes_service import RestricoesService
+from src.services.visualizacao_service import VisualizacaoService
 
 __all__ = [
     "AlocacaoService",
@@ -17,4 +18,5 @@ __all__ = [
     "PanoramaService",
     "ProcessoService",
     "RestricoesService",
+    "VisualizacaoService",
 ]

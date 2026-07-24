@@ -168,15 +168,21 @@ para pegar esse descuido.
 > 2026. Os arquivos `04-modelo-dados.md` e `06-arquitetura.md` são os mais
 > defasados.
 
+## Dados de referência
+
+O mapa real do HC (10 pavimentos, 231 estações) e a lista oficial de unidades do
+ambulatório (43 das 62 participam) estão embutidos em
+[`src/repositories/dados_referencia.py`](src/repositories/dados_referencia.py),
+extraídos das planilhas "Quantitativo de Consultórios" e "Grades AGHU -
+Validação". São semeados no catálogo na primeira execução.
+
+Para trocar por dados de outra unidade, edite esse módulo e apague o `saa.db`
+para forçar a resemeadura.
+
 ## Pendências conhecidas
 
-- **Lista de unidades que não participam.** O passo 2 do pipeline descarta as
-  unidades marcadas como "não participa", mas a lista oficial ainda não foi
-  incorporada. Sem ela, a importação real traz 58 unidades em vez de ~43,
-  incluindo almoxarifado e afins. O campo existe em
-  `unidade_catalogo.participa_default` e a etapa 2 já permite editá-lo.
-- **Contagens reais de salas.** A estrutura do prédio semeada em
-  `src/repositories/catalogo_repository.py` soma as 231 estações do documento,
-  mas a distribuição por tipo de sala foi arbitrada.
-- **Módulo de Visualização.** O painel consolidado somente leitura ainda não foi
-  construído.
+- **Decisões de produto da seção 13 do documento.** Distribuição concentrada
+  vs. espalhada quando não há preferência; pesos do histórico na afinidade; se a
+  visualização precisa exportar para Excel/PDF. Aguardam definição do cliente.
+- **A SRD em `docs/spec/` descreve o modelo antigo** (grade → sala). Precisa ser
+  atualizada para o modelo clínica → pavimento.

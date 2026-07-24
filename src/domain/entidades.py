@@ -98,6 +98,47 @@ def total_de_salas(
     return padrao_1est + padrao_2est + esp_1est + esp_2est
 
 
+def salas_ocupadas(
+    estacoes_em_uso: int,
+    padrao_1est: int = 0,
+    padrao_2est: int = 0,
+    esp_1est: int = 0,
+    esp_2est: int = 0,
+) -> int:
+    """
+    Converte estações em uso de volta para salas físicas ocupadas.
+
+    O motor conta capacidade em estações, mas o gestor pensa em salas. Esta é a
+    conversão que a seção 14 do documento pede nos relatórios de "número de
+    salas" e "% de ocupação".
+
+    Preenchemos primeiro as salas de 2 estações, que rendem mais por sala — o
+    que dá o menor número de salas físicas capaz de acomodar aquela ocupação.
+    Uma sala de 2 estações parcialmente usada conta como uma sala ocupada.
+    """
+    if estacoes_em_uso <= 0:
+        return 0
+
+    restante = estacoes_em_uso
+    ocupadas = 0
+
+    # Salas de 2 estações primeiro (padrão e especializada), depois as de 1.
+    for quantidade, capacidade in (
+        (padrao_2est, 2),
+        (esp_2est, 2),
+        (padrao_1est, 1),
+        (esp_1est, 1),
+    ):
+        while quantidade > 0 and restante > 0:
+            restante -= capacidade
+            ocupadas += 1
+            quantidade -= 1
+
+    # Se a ocupação passou da capacidade (só acontece sob obrigatoriedade), não
+    # há mais salas físicas — a sobra fica sem sala, e o total não é inflado.
+    return ocupadas
+
+
 # ---------------------------------------------------------------------------
 # Entidades do motor
 # ---------------------------------------------------------------------------

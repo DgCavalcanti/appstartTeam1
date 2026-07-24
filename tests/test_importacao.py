@@ -362,6 +362,33 @@ class TestDerivarDemanda:
 # ---------------------------------------------------------------------------
 
 
+class TestUnidadesVistas:
+    """Todas as unidades do arquivo, antes de filtrar — o que a etapa 2 lista."""
+
+    def test_lista_todas_inclusive_as_excluidas(self):
+        df = frame(
+            linha(unidade="CARDIOLOGIA (AMBULATÓRIO)"),
+            linha(unidade="ALMOXARIFADO"),
+            linha(unidade="HEMODINAMICA"),
+        )
+        catalogo = Catalogo(unidades_excluidas=frozenset({"almoxarifado", "hemodinamica"}))
+        resultado = executar_pipeline(df, catalogo)
+
+        # As três aparecem, mesmo as que o filtro descarta.
+        assert set(resultado.unidades_vistas) == {
+            "CARDIOLOGIA (AMBULATÓRIO)",
+            "ALMOXARIFADO",
+            "HEMODINAMICA",
+        }
+        # Mas só a participante vira demanda.
+        assert {s.unidade for s in resultado.slots} == {"CARDIOLOGIA (AMBULATÓRIO)"}
+
+    def test_grafia_original_preservada(self):
+        df = frame(linha(unidade="Cardiologia (Ambulatório)"))
+        resultado = executar_pipeline(df)
+        assert resultado.unidades_vistas == ("Cardiologia (Ambulatório)",)
+
+
 class TestReconciliacao:
 
     def test_unidade_nunca_vista_e_apontada(self):

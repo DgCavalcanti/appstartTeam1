@@ -34,7 +34,7 @@
         <button
           class="px-4 py-2 rounded bg-paper-primary text-white text-sm font-medium hover:bg-paper-primary-hover disabled:bg-paper-disabled disabled:text-gray-500"
           :disabled="!arquivo || carregando"
-          @click="processar"
+          @click="importar"
         >
           {{ carregando ? 'Processando…' : 'Importar e alocar' }}
         </button>
@@ -81,12 +81,15 @@
         <h2 class="text-lg font-semibold text-paper-text">
           Unidades ({{ dados.clinicas.length }} participando)
         </h2>
-        <button class="text-sm text-paper-info hover:underline shrink-0" @click="marcarSemSufixo">
-          marcar as sem “(AMBULATÓRIO)”
-        </button>
+        <button
+          v-if="temOverride"
+          class="text-sm text-paper-info hover:underline shrink-0"
+          @click="restaurarPadrao"
+        >restaurar padrão do catálogo</button>
       </div>
       <p class="text-sm text-gray-500 mb-4">
-        Desmarque o que não ocupa consultório. Alterar aqui reexecuta o pipeline.
+        Já vem marcado quem participa do ambulatório, segundo o catálogo do HC.
+        Ajuste se precisar — alterar aqui reexecuta o pipeline.
       </p>
 
       <div class="max-h-64 overflow-y-auto border border-gray-200 rounded divide-y divide-gray-100">
@@ -99,13 +102,18 @@
           <span :class="participantes.includes(u) ? 'text-paper-text' : 'text-gray-400 line-through'">
             {{ u }}
           </span>
+          <span
+            v-if="unidadesNovas.includes(u)"
+            class="text-[10px] px-1 rounded bg-paper-info/20 text-paper-text"
+            title="Unidade nova, não estava no catálogo — confira se participa"
+          >nova</span>
         </label>
       </div>
 
       <button
         class="mt-4 px-4 py-2 rounded bg-paper-default text-white text-sm font-medium hover:bg-paper-default-hover disabled:bg-paper-disabled"
         :disabled="carregando"
-        @click="processar"
+        @click="reprocessar"
       >
         Reprocessar
       </button>
@@ -324,6 +332,10 @@
                   :to="`/saa/cenarios/${c.id}`"
                   class="text-paper-primary hover:underline text-xs mr-3 font-medium"
                 >abrir</router-link>
+                <router-link
+                  :to="`/saa/cenarios/${c.id}/visualizacao`"
+                  class="text-paper-primary hover:underline text-xs mr-3"
+                >painel</router-link>
                 <button class="text-paper-info hover:underline text-xs mr-3" @click="clonarCenario(c)">
                   clonar
                 </button>
@@ -369,10 +381,12 @@ interface Relatorio {
   descartadas_por_unidade: number; descartadas_por_dia: number;
   descartadas_por_noite: number; slots_em_revisao: number;
 }
+interface UnidadeVista { nome: string; participa: boolean; nova: boolean }
 interface Resposta {
   arquivo: string;
   turnos: Turno[];
   relatorio: Relatorio;
+  unidades: UnidadeVista[];
   clinicas: Clinica[];
   unidades_novas: string[];
   alocacao: {
@@ -402,10 +416,14 @@ interface PavimentoEditavel {
 const CAMPOS_SALA = ['padrao_1est', 'padrao_2est', 'esp_1est', 'esp_2est', 'fechada'] as const;
 
 const pavimentos = ref<PavimentoEditavel[]>([]);
-/** Todas as unidades já vistas no arquivo, participando ou não. */
+/** Todas as unidades vistas no arquivo, participando ou não. */
 const todasUnidades = ref<string[]>([]);
 /** Subconjunto marcado — o que não está aqui vai para a lista de exclusão. */
 const participantes = ref<string[]>([]);
+/** Unidades que o catálogo ainda não conhecia — sinalizadas para revisão. */
+const unidadesNovas = ref<string[]>([]);
+/** O gestor mexeu na seleção? Se sim, mandamos exclusões explícitas. */
+const temOverride = ref(false);
 
 const ABREV_DIA: Record<string, string> = {
   segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui', sexta: 'Sex',
@@ -497,10 +515,8 @@ function definirArquivo(novo: File | null) {
   dados.value = null;
   todasUnidades.value = [];
   participantes.value = [];
-}
-
-function marcarSemSufixo() {
-  participantes.value = todasUnidades.value.filter(u => u.toUpperCase().includes('AMBULAT'));
+  unidadesNovas.value = [];
+  temOverride.value = false;
 }
 
 async function carregarPadroes() {
@@ -527,6 +543,7 @@ async function salvarCenario() {
     form.append('arquivo', arquivo.value);
     form.append('nome', nomeCenario.value.trim());
     form.append('pavimentos', JSON.stringify(pavimentos.value));
+    // O gestor confirmou a seleção na tela; enviamos como escolha explícita.
     form.append('unidades_excluidas', JSON.stringify(excluidas));
 
     await api.post('/api/cenarios', form);
@@ -561,7 +578,15 @@ function formatarData(iso: string | null): string {
 
 onMounted(carregarHistorico);
 
-async function processar() {
+/**
+ * Importa e simula.
+ *
+ * Na primeira passada não enviamos exclusões: o backend aplica o catálogo do HC
+ * (a lista real de unidades do ambulatório) e devolve quem participa. Se o
+ * gestor mexer na seleção, `enviarOverride` passa a valer e mandamos a lista
+ * explícita.
+ */
+async function processar(enviarOverride: boolean) {
   if (!arquivo.value) return;
   carregando.value = true;
   erro.value = '';
@@ -569,26 +594,40 @@ async function processar() {
   try {
     await carregarPadroes();
 
-    const excluidas = todasUnidades.value.filter(u => !participantes.value.includes(u));
-
     const form = new FormData();
     form.append('arquivo', arquivo.value);
     form.append('pavimentos', JSON.stringify(pavimentos.value));
-    form.append('unidades_excluidas', JSON.stringify(excluidas));
+    if (enviarOverride) {
+      const excluidas = todasUnidades.value.filter(u => !participantes.value.includes(u));
+      form.append('unidades_excluidas', JSON.stringify(excluidas));
+    }
 
     const { data } = await api.post<Resposta>('/api/importacao', form);
     dados.value = data;
 
-    // Na primeira passada, o arquivo define o universo de unidades e todas
-    // entram participando. Nas seguintes, a seleção do gestor é preservada.
-    if (!todasUnidades.value.length) {
-      todasUnidades.value = data.clinicas.map(c => c.nome).sort();
-      participantes.value = [...todasUnidades.value];
-    }
+    todasUnidades.value = data.unidades.map(u => u.nome);
+    participantes.value = data.unidades.filter(u => u.participa).map(u => u.nome);
+    unidadesNovas.value = data.unidades.filter(u => u.nova).map(u => u.nome);
+    temOverride.value = enviarOverride;
   } catch (e: any) {
     erro.value = e?.response?.data?.detail ?? e?.message ?? 'Falha ao processar o arquivo';
   } finally {
     carregando.value = false;
   }
+}
+
+/** Botão principal: primeira importação, usando os padrões do catálogo. */
+function importar() {
+  processar(false);
+}
+
+/** Reprocessa preservando os ajustes do gestor na lista de unidades. */
+function reprocessar() {
+  processar(true);
+}
+
+/** Volta a seleção ao padrão do catálogo, descartando os ajustes manuais. */
+function restaurarPadrao() {
+  processar(false);
 }
 </script>

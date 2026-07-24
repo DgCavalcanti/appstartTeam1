@@ -408,19 +408,42 @@ class TestCatalogo:
 
         assert executar(rodar) is False
 
-    def test_semeia_a_estrutura_do_predio_uma_vez_so(self):
+    def test_semeia_a_referencia_uma_vez_so(self):
         async def rodar(sessao):
             repo = CatalogoRepository(sessao)
-            primeira = await repo.semear_pavimentos()
-            segunda = await repo.semear_pavimentos()
+            primeira = await repo.semear_referencia()
+            segunda = await repo.semear_referencia()
             await sessao.commit()
             pavimentos = await repo.listar_pavimentos()
-            return primeira, segunda, sum(p.capacidade for p in pavimentos)
+            unidades = await repo.listar_unidades()
+            return primeira, segunda, pavimentos, unidades
 
-        primeira, segunda, capacidade_total = executar(rodar)
-        assert primeira == 9
-        assert segunda == 0, "semear de novo não pode duplicar"
-        assert capacidade_total == 231, "a semente deve reproduzir as 231 estações do HC"
+        primeira, segunda, pavimentos, unidades = executar(rodar)
+
+        assert primeira == {"pavimentos": 10, "unidades": 62}
+        assert segunda == {"pavimentos": 0, "unidades": 0}, "semear de novo não duplica"
+        assert sum(p.capacidade for p in pavimentos) == 231, "as 231 estações do HC"
+        assert sum(1 for u in unidades if u.participa_default) == 43, "as 43 clínicas"
+
+    def test_participacao_padrao_vem_do_catalogo(self):
+        async def rodar(sessao):
+            repo = CatalogoRepository(sessao)
+            await repo.semear_referencia()
+            await sessao.commit()
+            return await repo.participacao_padrao(
+                [
+                    "CARDIOLOGIA (AMBULATÓRIO)",   # participa
+                    "HEMODINAMICA (AMBULATORIO)",  # não, apesar do sufixo
+                    "ENFERMAGEM",                  # participa, sem sufixo
+                    "CLÍNICA INVENTADA",           # desconhecida → participa
+                ]
+            )
+
+        padrao = executar(rodar)
+        assert padrao["CARDIOLOGIA (AMBULATÓRIO)"] is True
+        assert padrao["HEMODINAMICA (AMBULATORIO)"] is False
+        assert padrao["ENFERMAGEM"] is True
+        assert padrao["CLÍNICA INVENTADA"] is True
 
 
 # ---------------------------------------------------------------------------

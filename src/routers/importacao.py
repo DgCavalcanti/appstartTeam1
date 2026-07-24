@@ -1,11 +1,12 @@
 """
-importacao.py — Router da etapa 1 (importação) e da simulação de alocação.
+importacao.py — Pré-visualização da importação (etapa 1).
 
-Fatia vertical do fluxo novo: recebe a exportação do AGHU, roda o pipeline de
-tratamento e, com as capacidades informadas, executa o motor de alocação.
+Recebe a exportação do AGHU, roda o pipeline de tratamento e simula a alocação
+sobre o panorama de salas informado. Nada é persistido — é a prévia que o gestor
+vê antes de salvar o cenário via POST /api/cenarios.
 
-Este router é a pré-visualização: nada é gravado. Para persistir o resultado
-como um cenário do histórico, use POST /api/cenarios.
+O filtro de unidades vem do catálogo: quem participa do ambulatório está na
+lista de referência, não numa heurística de nome.
 """
 
 from __future__ import annotations
@@ -15,26 +16,18 @@ import logging
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.alocacao import EntradaAlocacao, SolverHeuristico
-from src.domain.entidades import (
-    NUM_TURNOS,
-    TURNOS,
-    Pavimento,
-    capacidade_em_estacoes,
-)
-from src.domain.importacao import Catalogo, importar, para_clinicas
+from src.domain.entidades import TURNOS, Pavimento, capacidade_em_estacoes
+from src.domain.importacao import Catalogo, importar, normalizar, para_clinicas
 from src.domain.importacao.leitor import ErroDeLeitura
-from src.repositories.catalogo_repository import PAVIMENTOS_SEMENTE
+from src.repositories import CatalogoRepository, PavimentoEntrada
+from src.resources.database import get_app_db_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/importacao", tags=["Importação"])
-
-
-#: Panorama de salas usado quando o gestor ainda não editou a etapa 3.
-#: Espelha a semente do catálogo: 9 pavimentos, 231 estações por turno.
-PAVIMENTOS_PADRAO: tuple[dict, ...] = PAVIMENTOS_SEMENTE
 
 #: Rótulos dos 10 turnos, na ordem canônica dos vetores de demanda.
 ROTULOS_TURNOS: tuple[dict, ...] = tuple(
@@ -48,9 +41,8 @@ EXTENSOES_ACEITAS = {".csv", ".xlsx", ".xls"}
     "",
     summary="Importar grades do AGHU e simular a alocação",
     description=(
-        "Recebe a exportação do AGHU, roda o pipeline de tratamento (etapa 1) e "
-        "executa o motor de alocação sobre o panorama de salas informado. "
-        "Nada é persistido."
+        "Pré-visualização: roda o pipeline de tratamento e simula o motor. "
+        "Nada é gravado. Para persistir como cenário, use POST /api/cenarios."
     ),
 )
 async def importar_e_simular(
@@ -58,14 +50,18 @@ async def importar_e_simular(
     pavimentos: str | None = Form(
         None,
         description=(
-            'JSON com as contagens de salas por pavimento: '
-            '[{"bloco": "...", "nome": "...", "padrao_1est": 8, "padrao_2est": 9, '
-            '"esp_1est": 4, "esp_2est": 2}]. A capacidade é derivada.'
+            'JSON com as contagens de salas por pavimento. Se ausente, usa o '
+            'mapa do HC do catálogo.'
         ),
     ),
     unidades_excluidas: str | None = Form(
-        None, description='JSON: ["ALMOXARIFADO", ...] — unidades que não participam'
+        None,
+        description=(
+            'JSON: ["ALMOXARIFADO", ...]. Se ausente, as exclusões vêm do '
+            'catálogo (unidades que não participam do ambulatório).'
+        ),
     ),
+    sessao: AsyncSession = Depends(get_app_db_session),
 ):
     nome_original = arquivo.filename or "grades.csv"
     sufixo = Path(nome_original).suffix.lower()
@@ -78,8 +74,18 @@ async def importar_e_simular(
             ),
         )
 
-    catalogo = Catalogo(unidades_excluidas=_lista(unidades_excluidas, "unidades_excluidas"))
-    lista_pavimentos = _pavimentos(pavimentos)
+    catalogo = CatalogoRepository(sessao)
+    await catalogo.semear_referencia()
+    lista_pavimentos = await _pavimentos(pavimentos, catalogo)
+
+    # As exclusões: a escolha explícita do gestor, se veio; senão o padrão do
+    # catálogo — a lista real de unidades que não participam do ambulatório.
+    if unidades_excluidas is None:
+        excluidas_norm = await catalogo.unidades_excluidas()
+    else:
+        excluidas_norm = frozenset(
+            _normalizar_nomes(_lista(unidades_excluidas, "unidades_excluidas"))
+        )
 
     conteudo = await arquivo.read()
     if not conteudo:
@@ -94,13 +100,21 @@ async def importar_e_simular(
     try:
         temporario.write_bytes(conteudo)
         try:
-            resultado = importar(temporario, catalogo)
+            resultado = importar(temporario, Catalogo(unidades_excluidas=excluidas_norm))
         except ErroDeLeitura as erro:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(erro)
             )
     finally:
         temporario.unlink(missing_ok=True)
+
+    # `unidades_vistas` traz todas as unidades do arquivo (antes de filtrar), na
+    # grafia original. Uma unidade participa quando sua forma normalizada não
+    # está no conjunto de exclusões.
+    participa = {
+        nome: normalizar(nome) not in excluidas_norm
+        for nome in resultado.unidades_vistas
+    }
 
     clinicas = para_clinicas(resultado.demandas)
 
@@ -110,6 +124,7 @@ async def importar_e_simular(
             EntradaAlocacao(clinicas=clinicas, pavimentos=lista_pavimentos)
         )
 
+    novas = set(_normalizar_nomes(resultado.unidades_novas))
     relatorio = resultado.relatorio
     return {
         "arquivo": nome_original,
@@ -129,24 +144,23 @@ async def importar_e_simular(
             "descartadas_por_noite": relatorio.descartadas_por_noite,
             "slots_em_revisao": relatorio.slots_em_revisao,
         },
-        "clinicas": [
+        # Todas as unidades do arquivo, com a participação padrão — é o que a
+        # etapa 2 lista como caixas de seleção.
+        "unidades": [
             {
-                "id": c.id,
-                "nome": c.nome,
-                "demanda": list(c.demanda),
-                "total": c.total,
-                "pico": c.pico,
+                "nome": nome,
+                "participa": participa[nome],
+                "nova": nome in resultado.unidades_novas,
             }
+            for nome in sorted(resultado.unidades_vistas)
+        ],
+        "clinicas": [
+            {"id": c.id, "nome": c.nome, "demanda": list(c.demanda), "total": c.total, "pico": c.pico}
             for c in clinicas
         ],
         "unidades_novas": list(resultado.unidades_novas),
         "slots_em_revisao": [
-            {
-                "profissional": s.profissional,
-                "unidade": s.unidade,
-                "dia": s.dia,
-                "periodo": s.periodo,
-            }
+            {"profissional": s.profissional, "unidade": s.unidade, "dia": s.dia, "periodo": s.periodo}
             for s in resultado.slots
             if s.revisar
         ],
@@ -193,9 +207,14 @@ def _serializar_alocacao(alocacao, pavimentos: tuple[Pavimento, ...]) -> dict | 
     }
 
 
-def _lista(bruto: str | None, campo: str) -> frozenset[str]:
+def _normalizar_nomes(nomes) -> list[str]:
+    """As chaves que o pipeline compara são as formas normalizadas dos nomes."""
+    return [normalizar(n) for n in nomes]
+
+
+def _lista(bruto: str | None, campo: str) -> list[str]:
     if not bruto:
-        return frozenset()
+        return []
     try:
         valores = json.loads(bruto)
     except json.JSONDecodeError as erro:
@@ -208,18 +227,31 @@ def _lista(bruto: str | None, campo: str) -> frozenset[str]:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"{campo} deve ser uma lista de nomes",
         )
-    return frozenset(str(v) for v in valores)
+    return [str(v) for v in valores]
 
 
-def _pavimentos(bruto: str | None) -> tuple[Pavimento, ...]:
+async def _pavimentos(
+    bruto: str | None, catalogo: CatalogoRepository
+) -> tuple[Pavimento, ...]:
     """
-    Converte as contagens de salas enviadas pela etapa 3 em pavimentos do motor.
+    Converte as contagens de salas em pavimentos do motor.
 
-    A capacidade é sempre derivada das contagens — nunca aceita pronta do
-    cliente — para não divergir do número que o gestor edita.
+    Sem contagens do cliente, usa o mapa do HC do catálogo. A capacidade é
+    sempre derivada das contagens — nunca aceita pronta.
     """
     if not bruto:
-        entradas = PAVIMENTOS_PADRAO
+        await catalogo.semear_referencia()
+        entradas = [
+            {
+                "bloco": p.bloco,
+                "nome": p.nome,
+                "padrao_1est": p.padrao_1est,
+                "padrao_2est": p.padrao_2est,
+                "esp_1est": p.esp_1est,
+                "esp_2est": p.esp_2est,
+            }
+            for p in await catalogo.listar_pavimentos()
+        ]
     else:
         try:
             entradas = json.loads(bruto)
@@ -241,9 +273,7 @@ def _pavimentos(bruto: str | None) -> tuple[Pavimento, ...]:
                 nome=str(
                     entrada.get("nome_completo")
                     or " — ".join(
-                        parte
-                        for parte in (entrada.get("bloco"), entrada.get("nome"))
-                        if parte
+                        parte for parte in (entrada.get("bloco"), entrada.get("nome")) if parte
                     )
                     or f"Pavimento {i}"
                 ),
@@ -261,16 +291,3 @@ def _pavimentos(bruto: str | None) -> tuple[Pavimento, ...]:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"pavimento inválido: {erro}",
         )
-
-
-@router.get(
-    "/padroes",
-    summary="Panorama de salas padrão",
-    description="Capacidades usadas quando o gestor ainda não editou a etapa 3.",
-)
-def obter_padroes():
-    return {
-        "pavimentos": list(PAVIMENTOS_PADRAO),
-        "turnos": ROTULOS_TURNOS,
-        "num_turnos": NUM_TURNOS,
-    }

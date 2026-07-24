@@ -27,6 +27,11 @@
           :title="podeConcluir ? '' : 'Execute a alocação antes de concluir'"
           @click="concluir"
         >Concluir</button>
+        <router-link
+          v-if="temVisualizacao"
+          :to="`/saa/cenarios/${cenarioId}/visualizacao`"
+          class="text-sm text-paper-primary hover:underline font-medium"
+        >visualização</router-link>
         <router-link to="/saa/importacao" class="text-sm text-paper-info hover:underline">
           histórico
         </router-link>
@@ -291,6 +296,13 @@ const capacidadeTotal = computed(() =>
 
 const podeConcluir = computed(() =>
   etapas.value.some(e => e.numero === 5 && e.status === 'preenchida')
+);
+
+/** O painel existe assim que o motor rodou — mesmo que já esteja desatualizado. */
+const temVisualizacao = computed(() =>
+  etapas.value.some(
+    e => e.numero === 5 && (e.status === 'preenchida' || e.status === 'desatualizada')
+  )
 );
 
 const unidadesParticipantes = computed(() => grades.value.filter(u => u.participa));

@@ -45,9 +45,14 @@ const IMPORTACAO = {
     descartadas_por_unidade: 950, descartadas_por_dia: 21,
     descartadas_por_noite: 59, slots_em_revisao: 7,
   },
+  // O backend devolve todas as unidades vistas, com a participação padrão do
+  // catálogo: CARDIOLOGIA participa; ALMOXARIFADO não.
+  unidades: [
+    { nome: 'ALMOXARIFADO', participa: false, nova: false },
+    { nome: 'CARDIOLOGIA (AMBULATÓRIO)', participa: true, nova: false },
+  ],
   clinicas: [
     { id: 1, nome: 'CARDIOLOGIA (AMBULATÓRIO)', demanda: demanda(3), total: 30, pico: 3 },
-    { id: 2, nome: 'ALMOXARIFADO', demanda: demanda(1), total: 10, pico: 1 },
   ],
   unidades_novas: [],
   slots_em_revisao: [],
@@ -163,28 +168,43 @@ describe('SaaImportacao.vue', () => {
     expect(wrapper.text()).toContain('75 estações por turno');
   });
 
-  it('lista as unidades encontradas para o gestor escolher quem participa', async () => {
+  it('marca a participação de cada unidade pelo padrão do catálogo', async () => {
     const wrapper = await montarComResultado();
-
-    const checkboxes = wrapper.findAll('input[type=checkbox]');
-    expect(checkboxes).toHaveLength(2);
-    expect(checkboxes.every(c => (c.element as HTMLInputElement).checked)).toBe(true);
-  });
-
-  it('desmarca as unidades sem o sufixo de ambulatório', async () => {
-    const wrapper = await montarComResultado();
-
-    const atalho = wrapper
-      .findAll('button')
-      .find(b => b.text().includes('marcar as sem'))!;
-    await atalho.trigger('click');
 
     const marcadas = wrapper
       .findAll('input[type=checkbox]')
       .filter(c => (c.element as HTMLInputElement).checked)
       .map(c => (c.element as HTMLInputElement).value);
 
+    // Só CARDIOLOGIA vem marcada; ALMOXARIFADO não participa, por catálogo.
     expect(marcadas).toEqual(['CARDIOLOGIA (AMBULATÓRIO)']);
+  });
+
+  it('a primeira importação não envia exclusões — deixa o catálogo decidir', async () => {
+    await montarComResultado();
+
+    const [, form] = (api.post as any).mock.calls.at(-1);
+    // Sem unidades_excluidas: o backend aplica a lista do ambulatório.
+    expect(form.get('unidades_excluidas')).toBeNull();
+  });
+
+  it('reprocessar envia a seleção ajustada do gestor', async () => {
+    const wrapper = await montarComResultado();
+
+    // O gestor re-inclui ALMOXARIFADO.
+    const almox = wrapper
+      .findAll('input[type=checkbox]')
+      .find(c => (c.element as HTMLInputElement).value === 'ALMOXARIFADO')!;
+    await almox.setValue(true);
+
+    (api.post as any).mockClear();
+    await wrapper.findAll('button').find(b => b.text() === 'Reprocessar')!.trigger('click');
+    await flushPromises();
+
+    const [url, form] = (api.post as any).mock.calls[0];
+    expect(url).toBe('/api/importacao');
+    // Agora manda exclusões explícitas — e nenhuma unidade está de fora.
+    expect(JSON.parse(form.get('unidades_excluidas'))).toEqual([]);
   });
 
   it('só habilita o salvamento depois de nomear o cenário', async () => {
@@ -200,11 +220,8 @@ describe('SaaImportacao.vue', () => {
     expect(botao().attributes('disabled')).toBeUndefined();
   });
 
-  it('envia o cenário com as unidades excluídas', async () => {
+  it('salva o cenário com a seleção confirmada na tela', async () => {
     const wrapper = await montarComResultado();
-
-    const atalho = wrapper.findAll('button').find(b => b.text().includes('marcar as sem'))!;
-    await atalho.trigger('click');
 
     const campo = wrapper.findAll('input').find(i => i.attributes('placeholder')?.includes('proposta'))!;
     await campo.setValue('Proposta 1');
@@ -218,6 +235,7 @@ describe('SaaImportacao.vue', () => {
     const [url, form] = (api.post as any).mock.calls[0];
     expect(url).toBe('/api/cenarios');
     expect(form.get('nome')).toBe('Proposta 1');
+    // ALMOXARIFADO ficou desmarcado (padrão do catálogo) → vai como exclusão.
     expect(JSON.parse(form.get('unidades_excluidas'))).toEqual(['ALMOXARIFADO']);
   });
 

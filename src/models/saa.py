@@ -26,7 +26,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.domain.entidades import capacidade_em_estacoes, total_de_salas
+from src.domain.entidades import (
+    capacidade_em_estacoes,
+    salas_ocupadas,
+    total_de_salas,
+)
 from src.domain.processo import PENDENTE, PRIMEIRA_ETAPA, RASCUNHO
 from src.resources.database import Base
 
@@ -212,6 +216,16 @@ class Pavimento(Base):
     @property
     def nome_completo(self) -> str:
         return f"{self.bloco} — {self.nome}"
+
+    def salas_em_uso(self, estacoes: int) -> int:
+        """Quantas salas físicas `estacoes` ocupadas representam (seção 14)."""
+        return salas_ocupadas(
+            estacoes,
+            padrao_1est=self.padrao_1est,
+            padrao_2est=self.padrao_2est,
+            esp_1est=self.esp_1est,
+            esp_2est=self.esp_2est,
+        )
 
 
 class Restricao(Base):

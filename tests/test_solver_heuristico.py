@@ -23,6 +23,7 @@ from src.domain.entidades import (
     Restricao,
     capacidade_em_estacoes,
     indice_turno,
+    salas_ocupadas,
     total_de_salas,
 )
 
@@ -96,6 +97,35 @@ class TestCapacidade:
         contagens = dict(padrao_1est=4, padrao_2est=2, esp_1est=1, esp_2est=3)
         assert capacidade_em_estacoes(**contagens) == 15
         assert total_de_salas(**contagens) == 10
+
+
+class TestSalasOcupadas:
+    """Conversão de estações em uso para salas físicas (seção 14)."""
+
+    def test_sem_ocupacao_nenhuma_sala(self):
+        assert salas_ocupadas(0, padrao_2est=5) == 0
+
+    def test_sala_de_duas_estacoes_parcial_conta_como_uma(self):
+        # 1 estação usada num pavimento só de salas de 2 estações ocupa 1 sala.
+        assert salas_ocupadas(1, padrao_2est=5) == 1
+        assert salas_ocupadas(2, padrao_2est=5) == 1
+        assert salas_ocupadas(3, padrao_2est=5) == 2
+
+    def test_salas_de_uma_estacao(self):
+        assert salas_ocupadas(3, padrao_1est=10) == 3
+
+    def test_preenche_as_de_duas_estacoes_primeiro(self):
+        # Pavimento: duas de 2est + duas de 1est (6 estações, 4 salas).
+        contagens = dict(padrao_2est=2, padrao_1est=2)
+        # 5 estações: 2+2 nas de 2est, +1 numa de 1est = 3 salas.
+        assert salas_ocupadas(5, **contagens) == 3
+        # A capacidade toda em uso ocupa todas as 4 salas.
+        assert salas_ocupadas(6, **contagens) == 4
+
+    def test_nao_infla_alem_das_salas_existentes(self):
+        # Sob obrigatoriedade a ocupação pode passar da capacidade; ainda assim
+        # não há mais salas físicas do que as que existem.
+        assert salas_ocupadas(99, padrao_2est=3) == 3
 
 
 # ---------------------------------------------------------------------------

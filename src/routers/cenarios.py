@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.alocacao import EntradaAlocacao, SolverHeuristico
 from src.domain.entidades import TURNOS, Pavimento as PavimentoDominio
-from src.domain.importacao import Catalogo, importar, para_clinicas
+from src.domain.importacao import Catalogo, importar, normalizar, para_clinicas
 from src.domain.importacao.leitor import ErroDeLeitura
 from src.models.saa import Alocacao
 from src.repositories import AlocacaoRepository, CatalogoRepository, PavimentoEntrada
@@ -32,6 +32,7 @@ from src.services import (
     PanoramaService,
     ProcessoService,
     RestricoesService,
+    VisualizacaoService,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ EXTENSOES_ACEITAS = {".csv", ".xlsx", ".xls"}
 )
 async def obter_padroes(sessao: AsyncSession = Depends(get_app_db_session)):
     catalogo = CatalogoRepository(sessao)
-    if await catalogo.semear_pavimentos():
+    if any((await catalogo.semear_referencia()).values()):
         await sessao.commit()
 
     pavimentos = await catalogo.listar_pavimentos()
@@ -119,8 +120,17 @@ async def criar_cenario(
             detail=f"extensão não suportada: {sufixo or '(nenhuma)'}",
         )
 
-    excluidas = _lista(unidades_excluidas, "unidades_excluidas")
+    catalogo = CatalogoRepository(sessao)
+    await catalogo.semear_referencia()
     entradas = await _pavimentos(pavimentos, sessao)
+
+    # Exclusões: escolha explícita do gestor, ou o padrão do catálogo.
+    if unidades_excluidas is None:
+        excluidas_norm = await catalogo.unidades_excluidas()
+    else:
+        excluidas_norm = frozenset(
+            normalizar(n) for n in _lista(unidades_excluidas, "unidades_excluidas")
+        )
 
     conteudo = await arquivo.read()
     if not conteudo:
@@ -133,7 +143,9 @@ async def criar_cenario(
     try:
         temporario.write_bytes(conteudo)
         try:
-            importacao = importar(temporario, Catalogo(unidades_excluidas=excluidas))
+            importacao = importar(
+                temporario, Catalogo(unidades_excluidas=excluidas_norm)
+            )
         except ErroDeLeitura as erro:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(erro)
@@ -142,6 +154,14 @@ async def criar_cenario(
         temporario.unlink(missing_ok=True)
 
     clinicas = para_clinicas(importacao.demandas)
+
+    # As unidades que apareceram no arquivo mas foram excluídas ficam
+    # registradas no cenário com o nome original, participa=False.
+    excluidas_vistas = tuple(
+        nome
+        for nome in importacao.unidades_vistas
+        if normalizar(nome) in excluidas_norm
+    )
 
     resultado = None
     if clinicas and entradas:
@@ -153,9 +173,8 @@ async def criar_cenario(
             EntradaAlocacao(clinicas=clinicas, pavimentos=dominio)
         )
 
-    # O catálogo aprende as unidades vistas — inclusive as que não participam.
-    catalogo = CatalogoRepository(sessao)
-    await catalogo.aprender_unidades([c.nome for c in clinicas] + sorted(excluidas))
+    # O catálogo aprende as unidades novas que o arquivo trouxe.
+    await catalogo.aprender_unidades(list(importacao.unidades_vistas))
 
     repo = AlocacaoRepository(sessao)
     cenario = await repo.criar(
@@ -165,7 +184,7 @@ async def criar_cenario(
         demandas=importacao.demandas,
         pavimentos=entradas,
         resultado=resultado,
-        unidades_excluidas=tuple(sorted(excluidas)),
+        unidades_excluidas=excluidas_vistas,
     )
     cenario_id = cenario.id
     await sessao.commit()
@@ -497,6 +516,26 @@ async def ajustar_resultado(
 
 
 # ---------------------------------------------------------------------------
+# Visualização — painel consolidado, somente leitura
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{cenario_id}/visualizacao",
+    summary="Painel consolidado da alocação (somente leitura)",
+)
+async def visualizar(
+    cenario_id: int, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    cenario = await _carregar(sessao, cenario_id)
+    try:
+        return VisualizacaoService(sessao).montar(cenario)
+    except ValueError as erro:
+        # 409: o cenário existe, mas ainda não está num estado visualizável.
+        raise HTTPException(status.HTTP_409_CONFLICT, str(erro))
+
+
+# ---------------------------------------------------------------------------
 # Auxiliares
 # ---------------------------------------------------------------------------
 
@@ -613,7 +652,7 @@ async def _pavimentos(
     """
     if not bruto:
         catalogo = CatalogoRepository(sessao)
-        if await catalogo.semear_pavimentos():
+        if any((await catalogo.semear_referencia()).values()):
             await sessao.commit()
         return tuple(
             PavimentoEntrada(

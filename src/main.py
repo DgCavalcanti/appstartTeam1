@@ -49,6 +49,15 @@ async def lifespan(app: FastAPI):
     app.state.app_db = DatabaseManager(app_dsn)
     print("App SQLite connection pool initialized.")
 
+    # Semeia o catálogo (mapa do HC + unidades do ambulatório) se ainda vazio.
+    from .repositories import CatalogoRepository
+
+    async for sessao in app.state.app_db.get_session():
+        semeado = await CatalogoRepository(sessao).semear_referencia()
+        await sessao.commit()
+        if any(semeado.values()):
+            print(f"Catálogo semeado: {semeado}")
+
     yield
 
     # Shutdown
