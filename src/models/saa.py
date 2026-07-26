@@ -400,3 +400,40 @@ class PavimentoCatalogo(Base):
             esp_1est=self.esp_1est,
             esp_2est=self.esp_2est,
         )
+
+    @property
+    def nome_completo(self) -> str:
+        return f"{self.bloco} — {self.nome}"
+
+
+class RestricaoCatalogo(Base):
+    """
+    Restrição padrão: liga uma clínica a um pavimento por default.
+
+    Sobrevive entre cenários. Ao criar um novo cenário, cada restrição padrão é
+    copiada para ele — casando a clínica pelo nome normalizado e o pavimento
+    pelo bloco/nome. É o ponto de partida da etapa 4; o gestor ajusta por
+    cenário depois.
+
+    A clínica é referenciada por nome (não por FK ao catálogo de unidades)
+    porque o que casa com o cenário é a forma normalizada do nome.
+    """
+
+    __tablename__ = "restricao_catalogo"
+    __table_args__ = (
+        UniqueConstraint(
+            "unidade_normalizada", "pavimento_catalogo_id", "tipo", name="uq_restricao_catalogo"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: Nome da clínica na grafia original, para exibição.
+    unidade_nome: Mapped[str] = mapped_column(String(200), nullable=False)
+    #: Forma normalizada — é por ela que casa com a unidade do cenário.
+    unidade_normalizada: Mapped[str] = mapped_column(String(200), nullable=False)
+    pavimento_catalogo_id: Mapped[int] = mapped_column(
+        ForeignKey("pavimento_catalogo.id", ondelete="CASCADE"), nullable=False
+    )
+    tipo: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    pavimento: Mapped["PavimentoCatalogo"] = relationship(lazy="selectin")

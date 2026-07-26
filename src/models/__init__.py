@@ -16,6 +16,7 @@ from src.models.saa import (
     Pavimento,
     PavimentoCatalogo,
     Restricao,
+    RestricaoCatalogo,
     UnidadeCatalogo,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "Pavimento",
     "PavimentoCatalogo",
     "Restricao",
+    "RestricaoCatalogo",
     "UnidadeCatalogo",
 ]

@@ -19,8 +19,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.alocacao import EntradaAlocacao, SolverHeuristico
-from src.domain.entidades import TURNOS, Pavimento as PavimentoDominio
+from src.domain.entidades import TURNOS
 from src.domain.importacao import Catalogo, importar, normalizar, para_clinicas
 from src.domain.importacao.leitor import ErroDeLeitura
 from src.models.saa import Alocacao
@@ -163,19 +162,11 @@ async def criar_cenario(
         if normalizar(nome) in excluidas_norm
     )
 
-    resultado = None
-    if clinicas and entradas:
-        dominio = tuple(
-            PavimentoDominio(id=i, nome=e.nome_completo, capacidade=e.capacidade)
-            for i, e in enumerate(entradas, start=1)
-        )
-        resultado = SolverHeuristico().resolver(
-            EntradaAlocacao(clinicas=clinicas, pavimentos=dominio)
-        )
-
     # O catálogo aprende as unidades novas que o arquivo trouxe.
     await catalogo.aprender_unidades(list(importacao.unidades_vistas))
 
+    # Cria o cenário sem resultado; a alocação roda logo abaixo, depois de
+    # herdar as restrições padrão, para já sair respeitando-as.
     repo = AlocacaoRepository(sessao)
     cenario = await repo.criar(
         nome=nome_cenario,
@@ -183,10 +174,22 @@ async def criar_cenario(
         slots=importacao.slots,
         demandas=importacao.demandas,
         pavimentos=entradas,
-        resultado=resultado,
+        resultado=None,
         unidades_excluidas=excluidas_vistas,
     )
     cenario_id = cenario.id
+    await sessao.flush()
+
+    # Recarrega com as coleções carregadas (unidades, pavimentos): o objeto
+    # recém-criado guarda os filhos num dict local, não na coleção do cenário.
+    cenario = await repo.obter(cenario_id)
+
+    # Herda o padrão de obrigatoriedades e preferências, então executa o motor —
+    # a alocação inicial já considera as restrições padrão.
+    await catalogo.semear_restricoes_no_cenario(cenario)
+    if any(u.participa for u in cenario.unidades) and cenario.pavimentos:
+        await AlocacaoService(sessao).executar(cenario)
+
     await sessao.commit()
     sessao.expunge_all()
 

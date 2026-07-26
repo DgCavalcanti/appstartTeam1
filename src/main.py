@@ -84,9 +84,10 @@ if (DIST / "assets").is_dir():
 if DIST.is_dir():
     app.mount("/static", StaticFiles(directory=DIST), name="static")
 
-from .routers import cenarios, importacao
+from .routers import cenarios, importacao, padroes
 app.include_router(importacao.router)
 app.include_router(cenarios.router)
+app.include_router(padroes.router)
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
