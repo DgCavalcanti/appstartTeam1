@@ -17,7 +17,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entidades import NUM_TURNOS, TURNOS, indice_turno
+from src.domain.entidades import NUM_TURNOS, OBRIGATORIO, TURNOS, indice_turno
 from src.domain.processo import DESATUALIZADA, PREENCHIDA
 from src.models.saa import Alocacao
 from src.services.processo_service import ETAPA_EXECUCAO, ProcessoService
@@ -65,6 +65,21 @@ class VisualizacaoService:
     # -- Recortes ----------------------------------------------------------
 
     def _por_pavimento(self, cenario: Alocacao) -> list[dict]:
+        """
+        O recorte que a tela de visualização usa como eixo principal (seção 3
+        do pedido de melhoria): "quais unidades funcionais estão em cada
+        pavimento?" — com ocupação por turno, capacidade, salas abertas,
+        demanda não alocada e alertas.
+        """
+        # Unidades com obrigatoriedade — usado para diferenciar, no alerta, uma
+        # sobra "estrutural" (a obrigatoriedade force a entrar mesmo sem
+        # espaço) de uma sobra comum de empacotamento.
+        obrigatorias_por_unidade = {
+            r.alocacao_unidade_id: r.pavimento_id
+            for r in cenario.restricoes
+            if r.tipo == OBRIGATORIO
+        }
+
         painel = []
         for pavimento in cenario.pavimentos:
             ocupantes = [
@@ -74,13 +89,49 @@ class VisualizacaoService:
             ]
 
             ocupacao = [0] * NUM_TURNOS
+            nao_alocado = [0] * NUM_TURNOS
             for unidade in ocupantes:
                 for item in unidade.resultados:
-                    ocupacao[indice_turno(item.dia_semana, item.turno)] += item.qtd_alocada
+                    i = indice_turno(item.dia_semana, item.turno)
+                    ocupacao[i] += item.qtd_alocada
+                    nao_alocado[i] += item.qtd_nao_alocada
 
             capacidade = pavimento.capacidade
             salas_por_turno = [pavimento.salas_em_uso(q) for q in ocupacao]
             pico = max(ocupacao) if ocupacao else 0
+            total_nao_alocado = sum(nao_alocado)
+
+            # Unidades obrigatórias deste pavimento que ficaram com sobra —
+            # é a "restrição obrigatória problemática" que o gestor precisa ver.
+            obrigatorias_com_sobra = sorted(
+                u.unidade_nome
+                for u in ocupantes
+                if obrigatorias_por_unidade.get(u.id) == pavimento.id
+                and sum(item.qtd_nao_alocada for item in u.resultados) > 0
+            )
+
+            alertas = []
+            if obrigatorias_com_sobra:
+                alertas.append(
+                    {
+                        "tipo": "obrigatoriedade_problematica",
+                        "mensagem": (
+                            "Obrigatoriedade força "
+                            f"{', '.join(obrigatorias_com_sobra)} neste pavimento, "
+                            f"mas sobram {total_nao_alocado} grade(s) sem sala."
+                        ),
+                    }
+                )
+            elif total_nao_alocado:
+                alertas.append(
+                    {
+                        "tipo": "excesso",
+                        "mensagem": (
+                            f"Capacidade excedida: {total_nao_alocado} grade(s) "
+                            "sem sala neste pavimento."
+                        ),
+                    }
+                )
 
             painel.append(
                 {
@@ -89,11 +140,14 @@ class VisualizacaoService:
                     "capacidade": capacidade,
                     "salas_abertas": pavimento.salas_abertas,
                     "ocupacao": ocupacao,
+                    "nao_alocado": nao_alocado,
+                    "total_nao_alocado": total_nao_alocado,
                     "salas_por_turno": salas_por_turno,
                     "salas_no_pico": max(salas_por_turno) if salas_por_turno else 0,
                     "ocupacao_media_pct": self._pct(sum(ocupacao), capacidade * NUM_TURNOS),
                     "ocupacao_pico_pct": self._pct(pico, capacidade),
                     "clinicas": [u.unidade_nome for u in ocupantes],
+                    "alertas": alertas,
                 }
             )
         return painel
@@ -139,8 +193,8 @@ class VisualizacaoService:
             clinicas.append(
                 {
                     "nome": unidade.unidade_nome,
-                    # Bloco e pavimento (andar) separados, para colunas e filtros
-                    # distintos; o completo fica para tooltip e compatibilidade.
+                    # Bloco e pavimento (nome curto) separados, para colunas e
+                    # filtros distintos na tela; o completo fica para tooltip.
                     "bloco": pavimento.bloco if pavimento else None,
                     "pavimento": pavimento.nome if pavimento else None,
                     "pavimento_completo": pavimento.nome_completo if pavimento else None,
@@ -176,6 +230,7 @@ class VisualizacaoService:
             "pavimentos_totais": len(por_pavimento),
             "salas_no_pico": salas_no_pico,
             "salas_totais": salas_totais,
+            "pavimentos_com_alerta": sum(1 for p in por_pavimento if p["alertas"]),
             "ocupacao_media_pct": self._media(
                 [p["ocupacao_media_pct"] for p in usados]
             ),

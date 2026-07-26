@@ -371,6 +371,52 @@ class TestClonagem:
         assert cenarios == 0
         assert unidades_orfas == 0, "as unidades deveriam cair junto com o cenário"
 
+    def test_clone_copia_as_restricoes(self):
+        from src.domain.entidades import OBRIGATORIO, PREFERENCIAL
+
+        clinicas, slots, demandas, pavimentos = cenario_de_exemplo()
+
+        async def rodar(sessao):
+            repo = AlocacaoRepository(sessao)
+            origem = await repo.criar(
+                nome="Original", clinicas=clinicas, slots=slots,
+                demandas=demandas, pavimentos=pavimentos,
+            )
+            await sessao.commit()
+            origem = await repo.obter(origem.id)
+
+            unidade = origem.unidades[0]
+            pavimento_obrig = origem.pavimentos[0]
+            pavimento_pref = origem.pavimentos[1]
+            from src.models.saa import Restricao
+
+            # Anexa via a coleção do relacionamento (não um `session.add` cru):
+            # com `expire_on_commit=False`, `origem.restricoes` só reflete o
+            # que passou pela coleção em memória.
+            origem.restricoes.append(
+                Restricao(
+                    alocacao_id=origem.id,
+                    alocacao_unidade_id=unidade.id,
+                    pavimento_id=pavimento_obrig.id,
+                    tipo=OBRIGATORIO,
+                )
+            )
+            origem.restricoes.append(
+                Restricao(
+                    alocacao_id=origem.id,
+                    alocacao_unidade_id=unidade.id,
+                    pavimento_id=pavimento_pref.id,
+                    tipo=PREFERENCIAL,
+                )
+            )
+            await sessao.commit()
+
+            clone = await recarregar(sessao, (await repo.clonar(origem.id, "Variação")).id)
+            return [(r.tipo,) for r in clone.restricoes]
+
+        restricoes = executar(rodar)
+        assert sorted(t for (t,) in restricoes) == [OBRIGATORIO, PREFERENCIAL]
+
 
 # ---------------------------------------------------------------------------
 # Catálogos globais
@@ -425,6 +471,38 @@ class TestCatalogo:
         assert sum(p.capacidade for p in pavimentos) == 231, "as 231 estações do HC"
         assert sum(1 for u in unidades if u.participa_default) == 43, "as 43 clínicas"
 
+    def test_pavimentos_vem_agrupados_por_andar_nao_alfabetico(self):
+        # Pavimento 1 e todos os seus blocos, depois pavimento 2 e os seus, e
+        # assim por diante — nunca alfabético por nome de bloco. "Bloco Anexo"
+        # vem alfabeticamente antes de "Bloco D", mas fisicamente eles nem
+        # dividem andar: Anexo é térreo (andar 1), D é o 3º andar.
+        async def rodar(sessao):
+            repo = CatalogoRepository(sessao)
+            await repo.semear_referencia()
+            await sessao.commit()
+            return await repo.listar_pavimentos()
+
+        pavimentos = executar(rodar)
+        andares = [p.andar for p in pavimentos]
+
+        # A lista inteira tem que estar não-decrescente em `andar`: é a
+        # garantia central de "pavimento 1 primeiro, depois pavimento 2...".
+        assert andares == sorted(andares)
+
+        # O 1º andar reúne Bloco E (térreo) e Bloco Anexo (térreo) juntos,
+        # antes de qualquer pavimento de andar maior.
+        primeiro_andar = [p.bloco for p in pavimentos if p.andar == 1]
+        assert set(primeiro_andar) == {"Bloco E", "Bloco Anexo"}
+        assert all(p.andar >= 1 for p in pavimentos[: len(primeiro_andar)])
+
+        # O último andar (6º) só tem Bloco F, e vem depois de todos os outros.
+        assert pavimentos[-1].bloco == "Bloco F"
+        assert pavimentos[-1].andar == 6
+
+        # Nunca alfabética: isso é o que quebraria se a ordenação fosse por
+        # texto — "Bloco Anexo" ficaria em primeiro lugar absoluto.
+        assert pavimentos[0].bloco != "Bloco Anexo" or pavimentos[0].andar == 1
+
     def test_participacao_padrao_vem_do_catalogo(self):
         async def rodar(sessao):
             repo = CatalogoRepository(sessao)
@@ -444,6 +522,210 @@ class TestCatalogo:
         assert padrao["HEMODINAMICA (AMBULATORIO)"] is False
         assert padrao["ENFERMAGEM"] is True
         assert padrao["CLÍNICA INVENTADA"] is True
+
+    # -- Regras padrão (obrigatoriedade/preferência por unidade+pavimento) --
+
+    def test_definir_e_listar_regra_padrao(self):
+        from src.domain.entidades import OBRIGATORIO
+
+        async def rodar(sessao):
+            catalogo = CatalogoRepository(sessao)
+            await catalogo.semear_referencia()
+            await sessao.flush()
+            pavimento = (await catalogo.listar_pavimentos())[0]
+            await catalogo.definir_restricao_padrao(
+                "CARDIOLOGIA (AMBULATÓRIO)", pavimento.id, OBRIGATORIO
+            )
+            await sessao.commit()
+            return await catalogo.listar_restricoes_padrao()
+
+        regras = executar(rodar)
+        assert len(regras) == 1
+        assert regras[0].unidade_normalizada == "cardiologia (ambulatorio)"
+        assert regras[0].tipo == OBRIGATORIO
+
+    def test_uma_unidade_so_pode_ter_uma_obrigatoriedade_padrao(self):
+        from src.domain.entidades import OBRIGATORIO
+
+        async def rodar(sessao):
+            catalogo = CatalogoRepository(sessao)
+            await catalogo.semear_referencia()
+            await sessao.flush()
+            pavimentos = await catalogo.listar_pavimentos()
+            await catalogo.definir_restricao_padrao(
+                "CARDIOLOGIA", pavimentos[0].id, OBRIGATORIO
+            )
+            await catalogo.definir_restricao_padrao(
+                "CARDIOLOGIA", pavimentos[1].id, OBRIGATORIO
+            )
+            await sessao.commit()
+            return await catalogo.listar_restricoes_padrao()
+
+        regras = executar(rodar)
+        assert len(regras) == 1, "a segunda obrigatoriedade substitui a primeira"
+
+    def test_remover_regra_padrao(self):
+        from src.domain.entidades import PREFERENCIAL
+
+        async def rodar(sessao):
+            catalogo = CatalogoRepository(sessao)
+            await catalogo.semear_referencia()
+            await sessao.flush()
+            pavimento = (await catalogo.listar_pavimentos())[0]
+            regra = await catalogo.definir_restricao_padrao(
+                "CARDIOLOGIA", pavimento.id, PREFERENCIAL
+            )
+            await sessao.commit()
+            removida = await catalogo.remover_restricao_padrao(regra.id)
+            return removida, await catalogo.listar_restricoes_padrao()
+
+        removida, restantes = executar(rodar)
+        assert removida is True
+        assert restantes == []
+
+    def test_remover_regra_padrao_inexistente(self):
+        async def rodar(sessao):
+            return await CatalogoRepository(sessao).remover_restricao_padrao(9999)
+
+        assert executar(rodar) is False
+
+    def test_tipo_invalido_na_regra_padrao(self):
+        async def rodar(sessao):
+            catalogo = CatalogoRepository(sessao)
+            await catalogo.semear_referencia()
+            await sessao.flush()
+            pavimento = (await catalogo.listar_pavimentos())[0]
+            with pytest.raises(ValueError, match="tipo inválido"):
+                await catalogo.definir_restricao_padrao(
+                    "CARDIOLOGIA", pavimento.id, "talvez"
+                )
+
+        executar(rodar)
+
+
+# ---------------------------------------------------------------------------
+# Especialidade — dado auxiliar de auditoria em grade_slot
+# ---------------------------------------------------------------------------
+
+
+class TestEspecialidadePersistida:
+
+    def test_especialidade_sobrevive_ao_round_trip(self):
+        clinicas, slots, demandas, pavimentos = cenario_de_exemplo()
+        slots_com_especialidade = tuple(
+            GradeSlot(
+                s.profissional, s.unidade, s.dia, s.periodo,
+                revisar=s.revisar, especialidade="CARDIOLOGIA",
+            )
+            for s in slots
+        )
+
+        async def rodar(sessao):
+            repo = AlocacaoRepository(sessao)
+            cenario = await repo.criar(
+                nome="C", clinicas=clinicas, slots=slots_com_especialidade,
+                demandas=demandas, pavimentos=pavimentos,
+            )
+            cenario = await recarregar(sessao, cenario.id)
+            return [s.especialidade for u in cenario.unidades for s in u.slots]
+
+        especialidades = executar(rodar)
+        assert especialidades == ["CARDIOLOGIA"] * len(slots)
+
+    def test_especialidade_ausente_vira_none(self):
+        clinicas, slots, demandas, pavimentos = cenario_de_exemplo()
+
+        async def rodar(sessao):
+            repo = AlocacaoRepository(sessao)
+            cenario = await repo.criar(
+                nome="C", clinicas=clinicas, slots=slots,
+                demandas=demandas, pavimentos=pavimentos,
+            )
+            cenario = await recarregar(sessao, cenario.id)
+            return [s.especialidade for u in cenario.unidades for s in u.slots]
+
+        assert all(e is None for e in executar(rodar))
+
+
+# ---------------------------------------------------------------------------
+# Regras padrão aplicadas na criação de um cenário novo
+# ---------------------------------------------------------------------------
+
+
+class TestRestricoesPadraoNaCriacao:
+
+    def test_regra_padrao_vira_restricao_do_cenario(self):
+        from src.domain.entidades import OBRIGATORIO
+        from src.repositories import RestricaoPadraoEntrada
+
+        clinicas, slots, demandas, pavimentos = cenario_de_exemplo()
+
+        async def rodar(sessao):
+            repo = AlocacaoRepository(sessao)
+            cenario = await repo.criar(
+                nome="C", clinicas=clinicas, slots=slots, demandas=demandas,
+                pavimentos=pavimentos,
+                restricoes_padrao=(
+                    RestricaoPadraoEntrada(
+                        unidade_normalizada="cardiologia",
+                        pavimento_indice=1,
+                        tipo=OBRIGATORIO,
+                    ),
+                ),
+            )
+            cenario = await recarregar(sessao, cenario.id)
+            return [(r.tipo,) for r in cenario.restricoes]
+
+        restricoes = executar(rodar)
+        assert restricoes == [(OBRIGATORIO,)]
+
+    def test_regra_padrao_sem_pavimento_correspondente_e_ignorada(self):
+        from src.domain.entidades import OBRIGATORIO
+        from src.repositories import RestricaoPadraoEntrada
+
+        clinicas, slots, demandas, pavimentos = cenario_de_exemplo()
+
+        async def rodar(sessao):
+            repo = AlocacaoRepository(sessao)
+            cenario = await repo.criar(
+                nome="C", clinicas=clinicas, slots=slots, demandas=demandas,
+                pavimentos=pavimentos,
+                restricoes_padrao=(
+                    RestricaoPadraoEntrada(
+                        unidade_normalizada="cardiologia",
+                        pavimento_indice=99,  # não existe entre os 2 pavimentos
+                        tipo=OBRIGATORIO,
+                    ),
+                ),
+            )
+            cenario = await recarregar(sessao, cenario.id)
+            return list(cenario.restricoes)
+
+        assert executar(rodar) == []
+
+    def test_regra_padrao_de_unidade_inexistente_no_cenario_e_ignorada(self):
+        from src.domain.entidades import PREFERENCIAL
+        from src.repositories import RestricaoPadraoEntrada
+
+        clinicas, slots, demandas, pavimentos = cenario_de_exemplo()
+
+        async def rodar(sessao):
+            repo = AlocacaoRepository(sessao)
+            cenario = await repo.criar(
+                nome="C", clinicas=clinicas, slots=slots, demandas=demandas,
+                pavimentos=pavimentos,
+                restricoes_padrao=(
+                    RestricaoPadraoEntrada(
+                        unidade_normalizada="unidade que nao existe",
+                        pavimento_indice=1,
+                        tipo=PREFERENCIAL,
+                    ),
+                ),
+            )
+            cenario = await recarregar(sessao, cenario.id)
+            return list(cenario.restricoes)
+
+        assert executar(rodar) == []
 
 
 # ---------------------------------------------------------------------------

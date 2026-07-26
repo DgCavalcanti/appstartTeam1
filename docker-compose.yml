@@ -1,0 +1,16 @@
+services:
+  saa:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      ENV: production
+      LOG_LEVEL: info
+      # SQLite dentro do volume nomeado abaixo — sobrevive a `docker compose down`.
+      SQLITE_DSN: sqlite+aiosqlite:////data/saa.db
+    volumes:
+      - saa_dados:/data
+    restart: unless-stopped
+
+volumes:
+  saa_dados:

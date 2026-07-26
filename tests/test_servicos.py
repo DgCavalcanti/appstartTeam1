@@ -8,6 +8,7 @@ não pode apagar a alocação — só avisar que ela pode não valer mais.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -33,6 +34,8 @@ from src.services import (
     PanoramaService,
     ProcessoService,
     RestricoesService,
+    pesos_do_motor,
+    resolver_regras_padrao,
 )
 
 
@@ -745,3 +748,97 @@ class TestAjustesManuais:
                 )
 
         executar(rodar)
+
+
+# ---------------------------------------------------------------------------
+# Regras padrão → pesos do motor (pré-alocação)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _PavimentoCatalogoFalso:
+    """Dublê do relacionamento `RestricaoPadrao.pavimento` — só bloco/nome."""
+
+    bloco: str
+    nome: str
+
+
+@dataclass
+class _RegraPadraoFalsa:
+    """Dublê de `RestricaoPadrao` — as duas funções só leem estes 3 campos."""
+
+    unidade_normalizada: str
+    tipo: str
+    pavimento: _PavimentoCatalogoFalso
+
+
+class TestResolverRegrasPadrao:
+
+    def test_casa_pelo_par_bloco_nome(self):
+        regra = _RegraPadraoFalsa(
+            unidade_normalizada="cardiologia",
+            tipo=OBRIGATORIO,
+            pavimento=_PavimentoCatalogoFalso(bloco="Bloco E", nome="2º Pavimento"),
+        )
+        pavimentos = [("Bloco D", "3º Pavimento"), ("Bloco E", "2º Pavimento")]
+
+        resolvidas = resolver_regras_padrao([regra], pavimentos)
+
+        assert resolvidas == (("cardiologia", 2, OBRIGATORIO),)
+
+    def test_regra_sem_pavimento_correspondente_e_ignorada(self):
+        regra = _RegraPadraoFalsa(
+            unidade_normalizada="cardiologia",
+            tipo=OBRIGATORIO,
+            pavimento=_PavimentoCatalogoFalso(bloco="Bloco Z", nome="9º Pavimento"),
+        )
+        pavimentos = [("Bloco D", "3º Pavimento")]
+
+        assert resolver_regras_padrao([regra], pavimentos) == ()
+
+    def test_sem_regras_devolve_vazio(self):
+        assert resolver_regras_padrao([], [("Bloco D", "3º Pavimento")]) == ()
+
+
+class TestPesosDoMotor:
+
+    def test_obrigatoriedade_vira_entrada_no_dict(self):
+        clinicas = (Clinica(id=1, nome="CARDIOLOGIA", demanda=(0,) * NUM_TURNOS),)
+        regras = (("cardiologia", 2, OBRIGATORIO),)
+
+        obrigatorias, afinidade = pesos_do_motor(regras, clinicas)
+
+        assert obrigatorias == {1: 2}
+        assert afinidade == {}
+
+    def test_preferencial_vira_afinidade(self):
+        clinicas = (Clinica(id=1, nome="CARDIOLOGIA", demanda=(0,) * NUM_TURNOS),)
+        regras = (("cardiologia", 3, PREFERENCIAL),)
+
+        obrigatorias, afinidade = pesos_do_motor(regras, clinicas)
+
+        assert obrigatorias == {}
+        assert afinidade == {(1, 3): pytest.approx(1.0)}
+
+    def test_unidade_sem_clinica_correspondente_e_ignorada(self):
+        # A regra padrão pode referenciar uma unidade que não está entre as
+        # clínicas deste cálculo (ex.: não participa deste cenário/prévia).
+        clinicas = (Clinica(id=1, nome="ORTOPEDIA", demanda=(0,) * NUM_TURNOS),)
+        regras = (("cardiologia", 1, OBRIGATORIO),)
+
+        obrigatorias, afinidade = pesos_do_motor(regras, clinicas)
+
+        assert obrigatorias == {}
+        assert afinidade == {}
+
+    def test_casamento_e_por_forma_normalizada(self):
+        # A clínica carrega o nome original ("CARDIOLOGIA (AMBULATÓRIO)"); a
+        # regra guarda a forma normalizada. O casamento tem que atravessar isso.
+        clinicas = (
+            Clinica(id=7, nome="Cardiologia (Ambulatório)", demanda=(0,) * NUM_TURNOS),
+        )
+        regras = (("cardiologia (ambulatorio)", 1, OBRIGATORIO),)
+
+        obrigatorias, _ = pesos_do_motor(regras, clinicas)
+
+        assert obrigatorias == {7: 1}

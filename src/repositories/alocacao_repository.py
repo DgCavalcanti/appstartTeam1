@@ -19,6 +19,7 @@ from src.domain.alocacao import ResultadoAlocacao
 from src.domain.entidades import Clinica, capacidade_em_estacoes
 from src.domain.importacao import GradeDemanda as GradeDemandaDominio
 from src.domain.importacao import GradeSlot as GradeSlotDominio
+from src.domain.importacao import normalizar
 from src.domain.processo import ETAPAS, PENDENTE, PREENCHIDA, RASCUNHO
 from src.models.saa import (
     Alocacao,
@@ -28,6 +29,7 @@ from src.models.saa import (
     GradeDemanda,
     GradeSlot,
     Pavimento,
+    Restricao,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +45,8 @@ class PavimentoEntrada:
 
     bloco: str
     nome: str
+    #: Número do andar — usado só para agrupar a listagem (nunca alfabética).
+    andar: int = 0
     padrao_1est: int = 0
     padrao_2est: int = 0
     esp_1est: int = 0
@@ -61,6 +65,21 @@ class PavimentoEntrada:
     @property
     def nome_completo(self) -> str:
         return f"{self.bloco} — {self.nome}"
+
+
+@dataclass(frozen=True)
+class RestricaoPadraoEntrada:
+    """
+    Uma regra padrão já resolvida contra os índices do cenário sendo criado.
+
+    `unidade_normalizada` casa com `AlocacaoUnidade.unidade_nome` pela forma
+    normalizada; `pavimento_indice` é o índice 1..N atribuído a `pavimentos`
+    em `criar()` — o mesmo esquema que `PavimentoEntrada` já usa.
+    """
+
+    unidade_normalizada: str
+    pavimento_indice: int
+    tipo: str
 
 
 class AlocacaoRepository:
@@ -107,6 +126,7 @@ class AlocacaoRepository:
         resultado: ResultadoAlocacao | None = None,
         unidades_excluidas: tuple[str, ...] = (),
         origem_id: int | None = None,
+        restricoes_padrao: tuple[RestricaoPadraoEntrada, ...] = (),
     ) -> Alocacao:
         """
         Grava um cenário completo e autocontido.
@@ -133,6 +153,7 @@ class AlocacaoRepository:
                 alocacao_id=cenario.id,
                 bloco=entrada.bloco,
                 nome=entrada.nome,
+                andar=entrada.andar,
                 padrao_1est=entrada.padrao_1est,
                 padrao_2est=entrada.padrao_2est,
                 esp_1est=entrada.esp_1est,
@@ -170,6 +191,28 @@ class AlocacaoRepository:
 
         await self.sessao.flush()
 
+        # Pré-configuração — regras padrão do catálogo aplicadas a este cenário
+        # novo. É só o ponto de partida: o gestor edita/remove livremente na
+        # etapa 4 sem tocar no padrão global (RestricaoPadrao).
+        if restricoes_padrao:
+            unidades_por_chave = {
+                normalizar(nome): unidade for nome, unidade in unidades_orm.items()
+            }
+            for regra in restricoes_padrao:
+                unidade = unidades_por_chave.get(regra.unidade_normalizada)
+                pavimento = pavimentos_orm.get(regra.pavimento_indice)
+                if unidade is None or pavimento is None:
+                    continue
+                self.sessao.add(
+                    Restricao(
+                        alocacao_id=cenario.id,
+                        alocacao_unidade_id=unidade.id,
+                        pavimento_id=pavimento.id,
+                        tipo=regra.tipo,
+                    )
+                )
+            await self.sessao.flush()
+
         # Camada de origem: os slots.
         for slot in slots:
             unidade = unidades_orm.get(slot.unidade)
@@ -182,6 +225,7 @@ class AlocacaoRepository:
                     dia_semana=slot.dia,
                     turno=slot.periodo,
                     revisar=slot.revisar,
+                    especialidade=slot.especialidade,
                 )
             )
 
@@ -245,6 +289,7 @@ class AlocacaoRepository:
                 alocacao_id=clone.id,
                 bloco=pavimento.bloco,
                 nome=pavimento.nome,
+                andar=pavimento.andar,
                 padrao_1est=pavimento.padrao_1est,
                 padrao_2est=pavimento.padrao_2est,
                 esp_1est=pavimento.esp_1est,
@@ -255,6 +300,7 @@ class AlocacaoRepository:
             mapa_pavimentos[pavimento.id] = copia
         await self.sessao.flush()
 
+        mapa_unidades: dict[int, AlocacaoUnidade] = {}
         for unidade in origem.unidades:
             destino = mapa_pavimentos.get(unidade.pavimento_alocado_id or -1)
             copia_unidade = AlocacaoUnidade(
@@ -265,6 +311,7 @@ class AlocacaoRepository:
             )
             self.sessao.add(copia_unidade)
             await self.sessao.flush()
+            mapa_unidades[unidade.id] = copia_unidade
 
             for slot in unidade.slots:
                 self.sessao.add(
@@ -274,6 +321,7 @@ class AlocacaoRepository:
                         dia_semana=slot.dia_semana,
                         turno=slot.turno,
                         revisar=slot.revisar,
+                        especialidade=slot.especialidade,
                     )
                 )
             for demanda in unidade.demandas:
@@ -295,6 +343,22 @@ class AlocacaoRepository:
                         qtd_nao_alocada=item.qtd_nao_alocada,
                     )
                 )
+
+        # Restrições — obrigatoriedade/preferência também fazem parte da cópia:
+        # sem isso, o clone perderia as travas e afinidades da origem.
+        for restricao in origem.restricoes:
+            unidade_destino = mapa_unidades.get(restricao.alocacao_unidade_id)
+            pavimento_destino = mapa_pavimentos.get(restricao.pavimento_id)
+            if unidade_destino is None or pavimento_destino is None:
+                continue
+            self.sessao.add(
+                Restricao(
+                    alocacao_id=clone.id,
+                    alocacao_unidade_id=unidade_destino.id,
+                    pavimento_id=pavimento_destino.id,
+                    tipo=restricao.tipo,
+                )
+            )
 
         await self.sessao.flush()
         logger.info("cenário %d clonado em %d", origem.id, clone.id)

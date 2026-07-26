@@ -15,7 +15,6 @@ import json
 import logging
 import tempfile
 from pathlib import Path
-from typing import NamedTuple
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +25,7 @@ from src.domain.importacao import Catalogo, importar, normalizar, para_clinicas
 from src.domain.importacao.leitor import ErroDeLeitura
 from src.repositories import CatalogoRepository, PavimentoEntrada
 from src.resources.database import get_app_db_session
+from src.services import pesos_do_motor, resolver_regras_padrao
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/importacao", tags=["Importação"])
@@ -77,7 +77,7 @@ async def importar_e_simular(
 
     catalogo = CatalogoRepository(sessao)
     await catalogo.semear_referencia()
-    lista_pavimentos = await _pavimentos(pavimentos, catalogo)
+    lista_pavimentos, bloco_nome_pavimentos = await _pavimentos(pavimentos, catalogo)
 
     # As exclusões: a escolha explícita do gestor, se veio; senão o padrão do
     # catálogo — a lista real de unidades que não participam do ambulatório.
@@ -119,13 +119,47 @@ async def importar_e_simular(
 
     clinicas = para_clinicas(resultado.demandas)
 
-    dominios = tuple(p.dominio for p in lista_pavimentos)
+    # Regras padrão do catálogo (obrigatoriedade/preferência por Unidade_
+    # Funcional + pavimento), já ponderando esta prévia — não só o cenário
+    # depois de salvo. É o que faz a pré-alocação sair correta desde a etapa 1,
+    # sem o gestor precisar reexecutar nada.
+    regras_padrao_orm = await catalogo.listar_restricoes_padrao()
+    regras_padrao_resolvidas = resolver_regras_padrao(
+        regras_padrao_orm, bloco_nome_pavimentos
+    )
+    obrigatorias, afinidade = pesos_do_motor(regras_padrao_resolvidas, clinicas)
+
     alocacao = None
-    if clinicas and dominios:
+    if clinicas and lista_pavimentos:
         alocacao = SolverHeuristico().resolver(
-            EntradaAlocacao(clinicas=clinicas, pavimentos=dominios)
+            EntradaAlocacao(
+                clinicas=clinicas,
+                pavimentos=lista_pavimentos,
+                obrigatorias=obrigatorias,
+                afinidade=afinidade,
+            )
         )
 
+    # Para a tela mostrar quais regras padrão pesaram nesta prévia — sem isso,
+    # a pré-alocação pareceria "mágica" e o gestor não saberia de onde veio uma
+    # obrigatoriedade que ele nunca definiu neste cenário.
+    nomes_pavimentos = {i: p.nome for i, p in enumerate(lista_pavimentos, start=1)}
+    ids_clinicas_por_unidade = {normalizar(c.nome): c for c in clinicas}
+    regras_padrao_aplicadas = [
+        {
+            "unidade": (
+                ids_clinicas_por_unidade[unidade_normalizada].nome
+                if unidade_normalizada in ids_clinicas_por_unidade
+                else unidade_normalizada
+            ),
+            "pavimento": nomes_pavimentos.get(indice, f"Pavimento {indice}"),
+            "tipo": tipo,
+        }
+        for unidade_normalizada, indice, tipo in regras_padrao_resolvidas
+        if unidade_normalizada in ids_clinicas_por_unidade
+    ]
+
+    novas = set(_normalizar_nomes(resultado.unidades_novas))
     relatorio = resultado.relatorio
     return {
         "arquivo": nome_original,
@@ -165,17 +199,27 @@ async def importar_e_simular(
             for s in resultado.slots
             if s.revisar
         ],
-        "alocacao": _serializar_alocacao(alocacao, lista_pavimentos),
+        # Regras padrão do catálogo que já pesaram nesta prévia — pré-
+        # alocação, não confirmação: o gestor ainda decide se salva o cenário.
+        "regras_padrao_aplicadas": regras_padrao_aplicadas,
+        "alocacao": _serializar_alocacao(alocacao, lista_pavimentos, bloco_nome_pavimentos),
     }
 
 
 def _serializar_alocacao(
-    alocacao, pavimentos: tuple[PavimentoPreview, ...]
+    alocacao,
+    pavimentos: tuple[Pavimento, ...],
+    bloco_nome_pavimentos: tuple[tuple[str, str], ...] = (),
 ) -> dict | None:
     if alocacao is None:
         return None
 
-    meta = {p.dominio.id: p for p in pavimentos}
+    nomes = {p.id: p.nome for p in pavimentos}
+    # Bloco e pavimento (nome curto) separados, para a tela filtrar por cada um
+    # independentemente; `nomes` (acima) continua com o nome completo, usado
+    # como rótulo de "por_pavimento" e tooltip.
+    bloco_por_id = {i: b for i, (b, _n) in enumerate(bloco_nome_pavimentos, start=1)}
+    pavimento_por_id = {i: n for i, (_b, n) in enumerate(bloco_nome_pavimentos, start=1)}
     return {
         "total_alocado": alocacao.total_alocado,
         "total_nao_alocado": alocacao.total_nao_alocado,
@@ -184,10 +228,9 @@ def _serializar_alocacao(
                 "clinica_id": r.clinica_id,
                 "nome": r.nome,
                 "pavimento_id": r.pavimento_id,
-                # Bloco e andar separados para colunas/filtros; completo p/ tooltip.
-                "bloco": meta[r.pavimento_id].bloco if r.pavimento_id in meta else None,
-                "pavimento": meta[r.pavimento_id].pavimento if r.pavimento_id in meta else None,
-                "pavimento_completo": meta[r.pavimento_id].dominio.nome if r.pavimento_id in meta else "?",
+                "bloco": bloco_por_id.get(r.pavimento_id),
+                "pavimento": pavimento_por_id.get(r.pavimento_id),
+                "pavimento_completo": nomes.get(r.pavimento_id, "?"),
                 "alocado": list(r.alocado),
                 "nao_alocado": list(r.nao_alocado),
                 "total_alocado": r.total_alocado,
@@ -236,22 +279,18 @@ def _lista(bruto: str | None, campo: str) -> list[str]:
     return [str(v) for v in valores]
 
 
-class PavimentoPreview(NamedTuple):
-    """Pavimento do motor mais o bloco e o andar, para a tela separar as colunas."""
-
-    dominio: Pavimento
-    bloco: str
-    pavimento: str
-
-
 async def _pavimentos(
     bruto: str | None, catalogo: CatalogoRepository
-) -> tuple[PavimentoPreview, ...]:
+) -> tuple[tuple[Pavimento, ...], tuple[tuple[str, str], ...]]:
     """
     Converte as contagens de salas em pavimentos do motor.
 
-    Sem contagens do cliente, usa o mapa do HC do catálogo. A capacidade é
-    sempre derivada das contagens — nunca aceita pronta.
+    Sem contagens do cliente, usa o mapa do HC do catálogo (já na ordem por
+    andar). A capacidade é sempre derivada das contagens — nunca aceita pronta.
+
+    Devolve também a lista paralela de (bloco, nome) na mesma ordem/índice dos
+    pavimentos — é o que permite casar as regras padrão do catálogo com "o
+    pavimento de índice N" deste cálculo (ver `resolver_regras_padrao`).
     """
     if not bruto:
         await catalogo.semear_referencia()
@@ -281,32 +320,30 @@ async def _pavimentos(
             )
 
     try:
-        preview = []
-        for i, entrada in enumerate(entradas, start=1):
-            bloco = str(entrada.get("bloco") or "")
-            pavimento = str(entrada.get("nome") or f"Pavimento {i}")
-            completo = (
-                entrada.get("nome_completo")
-                or " — ".join(p for p in (bloco, pavimento) if p)
-                or f"Pavimento {i}"
+        pavimentos = tuple(
+            Pavimento(
+                id=i,
+                nome=str(
+                    entrada.get("nome_completo")
+                    or " — ".join(
+                        parte for parte in (entrada.get("bloco"), entrada.get("nome")) if parte
+                    )
+                    or f"Pavimento {i}"
+                ),
+                capacidade=capacidade_em_estacoes(
+                    padrao_1est=int(entrada.get("padrao_1est", 0)),
+                    padrao_2est=int(entrada.get("padrao_2est", 0)),
+                    esp_1est=int(entrada.get("esp_1est", 0)),
+                    esp_2est=int(entrada.get("esp_2est", 0)),
+                ),
             )
-            preview.append(
-                PavimentoPreview(
-                    dominio=Pavimento(
-                        id=i,
-                        nome=str(completo),
-                        capacidade=capacidade_em_estacoes(
-                            padrao_1est=int(entrada.get("padrao_1est", 0)),
-                            padrao_2est=int(entrada.get("padrao_2est", 0)),
-                            esp_1est=int(entrada.get("esp_1est", 0)),
-                            esp_2est=int(entrada.get("esp_2est", 0)),
-                        ),
-                    ),
-                    bloco=bloco,
-                    pavimento=pavimento,
-                )
-            )
-        return tuple(preview)
+            for i, entrada in enumerate(entradas, start=1)
+        )
+        bloco_nome = tuple(
+            (str(entrada.get("bloco") or ""), str(entrada.get("nome") or ""))
+            for entrada in entradas
+        )
+        return pavimentos, bloco_nome
     except (AttributeError, TypeError, ValueError) as erro:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

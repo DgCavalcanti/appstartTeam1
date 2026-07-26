@@ -1,140 +1,140 @@
 # Modelagem de Casos de Uso
 
-O processo é uma máquina de estados de seis etapas, que o gestor percorre podendo voltar a qualquer uma. Um módulo de visualização, somente leitura, resume o resultado.
-
 ## 1. Diagrama de Casos de Uso
 ```mermaid
 flowchart LR
     GA((Gestor Ambulatorial))
+    UC((Usuário de Consulta))
     SIS((Sistema))
 
-    subgraph "Sistema de Alocação Ambulatorial"
-        UC1([UC001 Importar grade do AGHU])
-        UC2([UC002 Validar e ajustar grades])
-        UC3([UC003 Manter panorama de salas])
-        UC4([UC004 Definir restrições])
-        UC5([UC005 Executar alocação])
-        UC6([UC006 Ajustar resultado])
-        UC7([UC007 Gerir cenários / histórico])
-        UC8([UC008 Visualizar painel consolidado])
-        UC9([UC009 Propagar invalidação])
+    subgraph "Sistema de Apoio à Alocação"
+        UC1([Importar Dados por CSV])
+        UC2([Visualizar Dashboard])
+        UC3([Consultar Grades])
+        UC4([Consultar Salas])
+        UC5([Verificar Conflitos])
+        UC6([Editar Alocação])
+        UC7([Consultar Detalhes da Sala])
+        UC8([Registrar Histórico])
+        UC9([Justificar Ajustes])
+        UC10([Exportar/Consultar Distribuição])
     end
 
     GA --- UC1
     GA --- UC2
     GA --- UC3
     GA --- UC4
-    GA --- UC5
     GA --- UC6
     GA --- UC7
-    GA --- UC8
+    GA --- UC9
+    GA --- UC10
 
-    SIS --- UC9
+    UC --- UC2
+    UC --- UC3
+    UC --- UC4
+    UC --- UC7
+
+    SIS --- UC5
+    SIS --- UC8
 ```
-
-## 2. Fluxo das etapas
-```mermaid
-flowchart LR
-    E1[1 Importar] --> E2[2 Grades]
-    E2 --> E3[3 Panorama de salas]
-    E3 --> E4[4 Restrições]
-    E4 --> E5[5 Executar]
-    E5 --> E6[6 Ajustes]
-    E6 --> C((Concluir))
-    E5 -.-> V[Visualização]
-    E2 -. invalida .-> E5
-    E3 -. invalida .-> E5
-    E4 -. invalida .-> E5
-```
-
-## 3. Especificação
-
-### UC001 - Importar grade do AGHU
+## 2. Especificação (Exemplo)
+### UC001 - Importar Dados por CSV
 * **Ator**: Gestor Ambulatorial.
-* **Fluxo**: Acessar a importação → enviar o arquivo do AGHU → o sistema trata os dados → revisar a redução e as unidades participantes → salvar como cenário.
+* **Fluxo**: Acessar tela de importação → Selecionar tipo de arquivo → Enviar CSV → Validar dados → Importar.
 
 #### [CARE-UC001] Implementação da Importação
-* **Context**: Carregar a grade exportada do AGHU (.csv/.xlsx) e prepará-la para a alocação.
-* **Action**: O pipeline filtra situação, condição, unidades que não participam, sábado e turno Noite; deduplica em slots; deriva as contagens; e reconcilia unidades/condições novas contra o catálogo.
-* **Result**: Demanda limpa (grade_slot + grade_demanda), relatório da redução e lista de unidades com a participação padrão do catálogo.
-* **Evaluation**: Rejeita arquivo inválido com mensagem clara; unidades que não ocupam consultório já vêm desmarcadas; profissionais em duas clínicas no mesmo turno ficam sinalizados.
+* **Context**: Necessidade de carregar dados iniciais do MVP (grades, salas, restrições e alocações).
+* **Action**: O sistema lê o arquivo, valida a presença de colunas obrigatórias e aponta campos ausentes ou dados inválidos.
+* **Result**: Dados válidos são importados, atualizando o dashboard operacional.
+* **Evaluation**: O sistema deve rejeitar CSVs incompletos com clareza, carregar arquivos válidos com sucesso e atualizar todas as telas automaticamente.
 
-### UC002 - Validar e ajustar grades
+### UC002 - Visualizar Dashboard Operacional
 * **Ator**: Gestor Ambulatorial.
-* **Fluxo**: Abrir a etapa 2 → conferir a demanda por clínica em cada dia/turno → corrigir valores e marcar/desmarcar participantes.
+* **Fluxo**: Acessar Dashboard → Visualizar indicadores gerais → Selecionar filtros (dia/turno) → Analisar situação.
 
-#### [CARE-UC002] Implementação da Planilha de Grades
-* **Context**: A demanda importada é ponto de partida, não verdade final; o gestor conhece exceções.
-* **Action**: Editar as contagens como planilha (com colar do Excel) e alternar a participação de cada unidade.
-* **Result**: As contagens do cenário são atualizadas; o total por turno reflete só as participantes.
-* **Evaluation**: O ajuste pode ultrapassar o que veio do AGHU; tirar uma unidade da alocação a solta de qualquer pavimento; a mudança marca a alocação como desatualizada.
+#### [CARE-UC002] Implementação do Dashboard
+* **Context**: Obtenção de uma visão consolidada da ocupação das salas no turno selecionado.
+* **Action**: Renderizar cards de totais (salas disponíveis, bloqueadas, em reforma), grid visual de salas e tabela de ocupação.
+* **Result**: Painel atualizado dinamicamente refletindo o status real e os conflitos encontrados.
+* **Evaluation**: Indicadores devem responder aos filtros e as salas com conflitos ou bloqueios devem possuir destaque visual claro.
 
-### UC003 - Manter o panorama de salas
-* **Ator**: Gestor Ambulatorial.
-* **Fluxo**: Abrir a etapa 3 → informar, por pavimento, quantas salas de cada tipo há → conferir a capacidade derivada.
+### UC003 - Consultar Grades de Atendimento
+* **Ator**: Gestor Ambulatorial, Usuário de Consulta.
+* **Fluxo**: Acessar tela de grades → Selecionar dia/turno → Listar grades correspondentes.
 
-#### [CARE-UC003] Implementação do Panorama
-* **Context**: A capacidade é o insumo físico da alocação, contada em estações.
-* **Action**: Editar as contagens de salas (padrão/especializada × 1/2 estações, e fechadas) por pavimento.
-* **Result**: A capacidade em estações é recalculada; os relatórios convertem estações de volta para salas físicas.
-* **Evaluation**: A capacidade nunca é digitada, sempre derivada; salas fechadas não entram; a mudança marca a alocação como desatualizada.
+#### [CARE-UC003] Implementação da Consulta de Grades
+* **Context**: Visualizar a demanda de atendimento exigida por turno.
+* **Action**: Exibir a lista de demandas com identificador, especialidade, profissional, e quantidade de salas necessárias.
+* **Result**: Usuário tem a visibilidade de todas as grades e filtra conforme necessidade.
+* **Evaluation**: Garantir que as grades que não possuem sala associada sejam facilmente identificadas.
 
-### UC004 - Definir obrigatoriedades e preferências
-* **Ator**: Gestor Ambulatorial.
-* **Fluxo**: Abrir a etapa 4 → escolher clínica, pavimento e tipo → adicionar ou remover restrições.
+### UC004 - Consultar Salas Ambulatoriais
+* **Ator**: Gestor Ambulatorial, Usuário de Consulta.
+* **Fluxo**: Acessar tela de salas → Aplicar filtros (status, bloco, especialidade) → Visualizar lista de salas.
 
-#### [CARE-UC004] Implementação das Restrições
-* **Context**: Algumas clínicas precisam ficar num pavimento específico; outras apenas preferem.
-* **Action**: Registrar restrição obrigatória (trava) ou preferencial (afinidade).
-* **Result**: O motor atende as obrigatórias primeiro e usa as preferências como puxão.
-* **Evaluation**: Uma clínica tem no máximo uma obrigatoriedade; só a obrigatoriedade pode gerar sobra; a preferência nunca força perda de atendimento.
+#### [CARE-UC004] Implementação da Consulta de Salas
+* **Context**: Visualizar o inventário de salas cadastradas e suas características físicas.
+* **Action**: Listar as salas exibindo número, bloco, andar, status, acessibilidade, equipamentos e situação (bloqueio/reforma).
+* **Result**: Inventário disponível para consulta com diferenciação de salas restritas.
+* **Evaluation**: Salas bloqueadas ou com equipamentos específicos devem ser claramente identificadas visualmente.
 
-### UC005 - Executar a alocação
-* **Ator**: Gestor Ambulatorial.
-* **Fluxo**: Abrir a etapa 5 → executar → conferir alocadas, sem sala e ocupação.
-
-#### [CARE-UC005] Implementação do Motor
-* **Context**: Empacotar cada clínica (vetor de 10 turnos) num pavimento (caixa) para a semana toda.
-* **Action**: Fixar obrigatórias, ordenar pelo pico, colocação gulosa, passada de melhoria (move/swap) e repartição proporcional da sobra.
-* **Result**: Cada clínica recebe um pavimento; por turno, grades alocadas e não alocadas; indicadores de ocupação.
-* **Evaluation**: Havendo capacidade, zero grades sem sala; resultado determinístico; a execução marca a etapa 5 como preenchida.
-
-### UC006 - Ajustar o resultado
-* **Ator**: Gestor Ambulatorial.
-* **Fluxo**: Abrir a etapa 6 → editar quantas grades uma clínica atende num turno.
-
-#### [CARE-UC006] Implementação do Ajuste Manual
-* **Context**: O gestor pode preferir outra divisão da sobra em um turno.
-* **Action**: Editar o resultado por turno; o restante da demanda vira "não alocação".
-* **Result**: O resultado da etapa 5 é alterado diretamente, sem refazer o processo.
-* **Evaluation**: Não alocar mais que a demanda nem estourar a capacidade do pavimento; a etapa 5 permanece válida.
-
-### UC007 - Gerir cenários e histórico
-* **Ator**: Gestor Ambulatorial.
-* **Fluxo**: Listar cenários → abrir, clonar ou excluir.
-
-#### [CARE-UC007] Implementação do Histórico
-* **Context**: Comparar alternativas de distribuição sem perder a original.
-* **Action**: Salvar cada alocação como cenário autocontido; clonar para variar; excluir descartáveis.
-* **Result**: Histórico do mais recente ao mais antigo; o clone aponta para a origem e é independente dela.
-* **Evaluation**: Reabrir um cenário mostra exatamente os insumos que o geraram; alterar um clone não afeta a origem.
-
-### UC008 - Visualizar o painel consolidado
-* **Ator**: Gestor Ambulatorial.
-* **Fluxo**: Abrir a visualização de um cenário alocado → analisar indicadores e distribuição → filtrar por bloco/pavimento ou buscar uma clínica.
-
-#### [CARE-UC008] Implementação da Visualização
-* **Context**: Enxergar o resultado de forma consolidada, somente leitura.
-* **Action**: Renderizar indicadores gerais, ocupação por turno e por pavimento (em salas físicas) e a distribuição das clínicas com filtros.
-* **Result**: Painel que responde aos filtros de bloco e pavimento e à busca por clínica.
-* **Evaluation**: Só disponível após a execução; exibe o último resultado mesmo quando desatualizado, avisando o gestor.
-
-### UC009 - Propagar a invalidação (Sistema)
+### UC005 - Verificar Conflitos Automaticamente
 * **Ator**: Sistema.
-* **Fluxo**: Interceptar alteração de insumo → marcar as etapas dependentes como desatualizadas.
+* **Ator Interessado**: Gestor Ambulatorial
+* **Fluxo**: Ler dados → Cruzar informações com regras → Classificar conflitos → Exibir no painel.
 
-#### [CARE-UC009] Implementação da Máquina de Estados
-* **Context**: Manter o gestor ciente de quando a alocação pode não valer mais.
-* **Action**: Ao mudar grades (1–2), panorama (3) ou restrições (4), marcar a alocação (5–6) como desatualizada, sem apagar o resultado.
-* **Result**: O stepper mostra o selo de status por etapa; reexecutar regenera o resultado.
-* **Evaluation**: O sistema avisa em vez de apagar; o resultado anterior permanece no banco até o gestor refazer.
+#### [CARE-UC005] Implementação do Motor de Conflitos
+* **Context**: Identificar inconsistências operacionais sem a necessidade de intervenção humana (ex: sala em reforma sendo utilizada, alocação dupla).
+* **Action**: Aplicar algoritmo de cruzamento de regras sobre a distribuição atual sempre que houver alteração de dados ou carga.
+* **Result**: Conflitos classificados por gravidade exibidos no dashboard e nos detalhes da sala.
+* **Evaluation**: Verificação deve rodar em background. Conflitos críticos devem gerar alerta visível e recalculados automaticamente após qualquer ajuste.
+
+### UC006 - Editar Alocação de Sala
+* **Ator**: Gestor Ambulatorial.
+* **Fluxo**: Selecionar alocação → Escolher nova sala → Verificar conflitos → Confirmar alteração.
+
+#### [CARE-UC006] Implementação de Ajuste Manual
+* **Context**: Alterar manualmente o ensalamento de uma grade.
+* **Action**: Processar a troca da sala associada à grade, rodando o validador de conflitos antes da gravação.
+* **Result**: Alocação atualizada, novos conflitos recalculados e alteração salva no histórico.
+* **Evaluation**: Sistema deve impedir seleção de sala inexistente/bloqueada sem alerta e registrar toda alteração no histórico.
+
+### UC007 - Consultar Detalhes de uma Sala
+* **Ator**: Gestor Ambulatorial, Usuário de Consulta.
+* **Fluxo**: Clicar em uma sala no painel → Abrir modal de detalhes → Visualizar informações e alertas.
+
+#### [CARE-UC007] Implementação do Detalhamento
+* **Context**: Acesso rápido às informações completas e conflitos específicos de uma única sala.
+* **Action**: Carregar modal com número, bloco, status, especialidade preferencial, profissionais alocados no dia/turno e alertas vinculados.
+* **Result**: Visão granular entregue ao usuário.
+* **Evaluation**: Dados completos da alocação e destaque evidente aos conflitos exclusivos daquela sala.
+
+### UC008 - Registrar Histórico de Ajustes
+* **Ator**: Sistema.
+* **Fluxo**: Interceptar alteração manual → Coletar meta-dados (usuário, sala ant/nova, data/hora) → Persistir no log.
+
+#### [CARE-UC008] Implementação da Auditoria
+* **Context**: Rastreabilidade de alterações operacionais efetuadas no sistema.
+* **Action**: Criar registro automatizado contendo a alocação alterada, o responsável, o estado anterior e novo, e conflitos associados.
+* **Result**: Base de histórico auditável gerada.
+* **Evaluation**: Todo ajuste manual deve invariavelmente gerar um log, garantindo o rastreio da responsabilidade pela ação.
+
+### UC009 - Justificar Ajustes com Conflito
+* **Ator**: Gestor Ambulatorial.
+* **Fluxo**: Tentar alteração com alerta → Sistema exige motivo → Inserir justificativa → Salvar.
+
+#### [CARE-UC009] Implementação de Bypass Justificado
+* **Context**: Permissão de flexibilidade operacional, registrando formalmente o aceite de um risco/alerta.
+* **Action**: Bloquear a confirmação de uma alocação conflitante até que o campo texto de justificativa seja preenchido.
+* **Result**: Alocação concluída sob exceção documentada.
+* **Evaluation**: Diferenciar erro bloqueante (não permitindo override) de alerta operacional (permitindo override com justificativa salva no log).
+
+### UC010 - Exportar / Consultar Distribuição Consolidada
+* **Ator**: Gestor Ambulatorial.
+* **Fluxo**: Acessar visão consolidada → Aplicar filtros de dia/turno → Exportar/Visualizar relatório.
+
+#### [CARE-UC010] Implementação da Exportação
+* **Context**: Obtenção de relatórios e resumos operacionais em PDF/CSV para distribuição.
+* **Action**: Formatar a matriz consolidada de salas, especialidades e profissionais ativos.
+* **Result**: Arquivo ou visão tabular gerada e disponibilizada ao usuário.
+* **Evaluation**: Garantir compatibilidade com formatos de saída (CSV/PDF) e manter a consistência dos dados com o painel real.

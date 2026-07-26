@@ -19,7 +19,7 @@
         </p>
       </div>
       <div class="flex items-center gap-3">
-        <span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600">{{ cenario.status }}</span>
+        <span class="text-xs px-2 py-1 rounded font-medium" :class="corDoStatus">{{ rotuloDoStatus }}</span>
         <button
           v-if="cenario.status !== 'concluida'"
           class="px-3 py-1.5 rounded bg-paper-success text-white text-sm hover:opacity-90 disabled:bg-paper-disabled disabled:text-gray-500"
@@ -148,6 +148,11 @@
         >Adicionar</button>
       </div>
 
+      <label class="flex items-center gap-2 text-xs text-gray-500 mb-4 -mt-2">
+        <input type="checkbox" v-model="nova.salvarComoPadrao" class="rounded" />
+        salvar também como regra padrão do catálogo (vale para os próximos cenários novos)
+      </label>
+
       <table class="w-full text-sm border-collapse">
         <thead>
           <tr class="text-xs text-gray-500 border-b border-gray-200">
@@ -182,6 +187,70 @@
           </tr>
         </tbody>
       </table>
+
+      <div class="mt-6 pt-5 border-t border-gray-200">
+        <h4 class="text-sm font-semibold text-paper-text mb-1">
+          Regras padrão do catálogo
+          <span class="text-xs font-normal text-gray-400">({{ regrasPadrao.length }})</span>
+        </h4>
+        <p class="text-xs text-gray-500 mb-4">
+          Pré-configuração aplicada automaticamente — já ponderada no motor —
+          a cada <strong>novo</strong> cenário criado a partir de agora. Editar
+          ou remover aqui não afeta este cenário nem outros já criados; e
+          alterações neste cenário (acima) não mudam o padrão global a menos
+          que você marque "salvar também como regra padrão".
+        </p>
+
+        <div class="flex flex-wrap items-end gap-3 mb-4">
+          <div class="flex-1 min-w-[12rem]">
+            <label class="form-label">Clínica</label>
+            <select v-model.number="novaRegraPadrao.unidade_id" class="form-control">
+              <option :value="0">— selecione —</option>
+              <option v-for="u in grades" :key="u.id" :value="u.id">{{ u.nome }}</option>
+            </select>
+          </div>
+          <div class="flex-1 min-w-[12rem]">
+            <label class="form-label">Pavimento</label>
+            <select v-model.number="novaRegraPadrao.pavimento_catalogo_id" class="form-control">
+              <option :value="0">— selecione —</option>
+              <option v-for="p in catalogoPavimentos" :key="p.id" :value="p.id">{{ p.nome_completo }}</option>
+            </select>
+          </div>
+          <div class="min-w-[10rem]">
+            <label class="form-label">Tipo</label>
+            <select v-model="novaRegraPadrao.tipo" class="form-control">
+              <option value="obrigatorio">Obrigatória</option>
+              <option value="preferencial">Preferencial</option>
+            </select>
+          </div>
+          <button
+            class="px-4 py-2 rounded bg-paper-default text-white text-sm hover:bg-paper-default-hover disabled:bg-paper-disabled disabled:text-gray-500"
+            :disabled="!novaRegraPadrao.unidade_id || !novaRegraPadrao.pavimento_catalogo_id"
+            @click="adicionarRegraPadraoAvulsa"
+          >Adicionar regra padrão</button>
+        </div>
+
+        <table class="w-full text-xs border-collapse">
+          <tbody>
+            <tr v-for="r in regrasPadrao" :key="r.id" class="border-b border-gray-100">
+              <td class="py-1.5 pr-3 text-paper-text">{{ r.unidade }}</td>
+              <td class="px-2 text-gray-600">{{ r.pavimento }}</td>
+              <td class="px-2">
+                <span
+                  class="px-1.5 py-0.5 rounded"
+                  :class="r.tipo === 'obrigatorio' ? 'bg-paper-danger/15' : 'bg-paper-info/15'"
+                >{{ r.tipo === 'obrigatorio' ? 'obrigatória' : 'preferencial' }}</span>
+              </td>
+              <td class="text-right pl-2">
+                <button class="text-paper-danger hover:underline" @click="removerRegraPadrao(r)">remover</button>
+              </td>
+            </tr>
+            <tr v-if="!regrasPadrao.length">
+              <td colspan="4" class="py-4 text-center text-gray-400">Nenhuma regra padrão definida.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <!-- ── Etapa 5 — executar ──────────────────────────────────────────── -->
@@ -273,7 +342,15 @@ const restricoes = ref<any[]>([]);
 const erro = ref('');
 const erroFatal = ref('');
 const ocupado = ref(false);
-const nova = ref({ unidade_id: 0, pavimento_id: 0, tipo: 'obrigatorio' });
+const nova = ref({ unidade_id: 0, pavimento_id: 0, tipo: 'obrigatorio', salvarComoPadrao: false });
+
+/** Formulário próprio da seção "regras padrão", independente da restrição do cenário. */
+const novaRegraPadrao = ref({ unidade_id: 0, pavimento_catalogo_id: 0, tipo: 'obrigatorio' });
+
+/** Regras padrão do catálogo — pré-configuração aplicada a cenários novos. */
+const regrasPadrao = ref<any[]>([]);
+/** Pavimentos do catálogo (com id), só para casar com o pavimento deste cenário. */
+const catalogoPavimentos = ref<any[]>([]);
 
 const ABREV: Record<string, string> = {
   segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui', sexta: 'Sex',
@@ -310,6 +387,20 @@ const temVisualizacao = computed(() =>
 );
 
 const unidadesParticipantes = computed(() => grades.value.filter(u => u.participa));
+
+const ROTULO_STATUS: Record<string, string> = {
+  rascunho: 'rascunho',
+  em_andamento: 'em andamento',
+  concluida: 'confirmado',
+};
+const rotuloDoStatus = computed(() => ROTULO_STATUS[cenario.value?.status] ?? cenario.value?.status);
+const corDoStatus = computed(() => {
+  switch (cenario.value?.status) {
+    case 'concluida': return 'bg-paper-success/15 text-paper-success';
+    case 'em_andamento': return 'bg-paper-warning/15 text-paper-text';
+    default: return 'bg-gray-100 text-gray-600';
+  }
+});
 
 const ocupacaoDePico = computed(() => {
   const total = cenario.value?.total_alocado ?? 0;
@@ -357,6 +448,9 @@ function realceGrade(linha: Record<string, any>): string {
 // ── Etapa 3 ────────────────────────────────────────────────────────────────
 
 const colunasPanorama: Coluna[] = [
+  // A lista já vem agrupada por andar (pavimento 1 e seus blocos, depois
+  // pavimento 2 e os seus...) — a coluna só torna esse agrupamento visível.
+  { chave: 'andar', rotulo: 'Andar', largura: '4rem' },
   { chave: 'nome_completo', rotulo: 'Pavimento', largura: '16rem' },
   { chave: 'padrao_1est', rotulo: 'Padrão 1 est.', editavel: true },
   { chave: 'padrao_2est', rotulo: 'Padrão 2 est.', editavel: true },
@@ -377,8 +471,7 @@ const rodapePanorama = computed(() => ({
 
 const colunasResultado = computed<Coluna[]>(() => [
   { chave: 'nome', rotulo: 'Clínica', largura: '18rem' },
-  { chave: 'pavimento', rotulo: 'Pavimento', largura: '10rem' },
-  { chave: 'bloco', rotulo: 'Bloco', largura: '8rem' },
+  { chave: 'pavimento', rotulo: 'Pavimento', largura: '12rem' },
   ...colunasTurno.value.map(c => ({ ...c, editavel: false })),
   { chave: 'total_alocado', rotulo: 'Total' },
   { chave: 'total_nao_alocado', rotulo: 'Sem sala' },
@@ -386,8 +479,7 @@ const colunasResultado = computed<Coluna[]>(() => [
 
 const colunasAjuste = computed<Coluna[]>(() => [
   { chave: 'nome', rotulo: 'Clínica', largura: '18rem' },
-  { chave: 'pavimento', rotulo: 'Pavimento', largura: '10rem' },
-  { chave: 'bloco', rotulo: 'Bloco', largura: '8rem' },
+  { chave: 'pavimento', rotulo: 'Pavimento', largura: '12rem' },
   ...colunasTurno.value,
   { chave: 'total_nao_alocado', rotulo: 'Sem sala' },
 ]);
@@ -416,12 +508,14 @@ function realceAjuste(linha: Record<string, any>, coluna: Coluna): string {
 
 async function carregar() {
   try {
-    const [c, e, g, p, r] = await Promise.all([
+    const [c, e, g, p, r, rp, cat] = await Promise.all([
       api.get(`/api/cenarios/${cenarioId.value}`),
       api.get(`/api/cenarios/${cenarioId.value}/etapas`),
       api.get(`/api/cenarios/${cenarioId.value}/grades`),
       api.get(`/api/cenarios/${cenarioId.value}/panorama`),
       api.get(`/api/cenarios/${cenarioId.value}/restricoes`),
+      api.get('/api/cenarios/regras-padrao'),
+      api.get('/api/cenarios/padroes'),
     ]);
     cenario.value = c.data;
     etapas.value = e.data.etapas;
@@ -429,9 +523,22 @@ async function carregar() {
     totaisGrades.value = g.data.totais_por_turno;
     panorama.value = p.data.pavimentos;
     restricoes.value = r.data.restricoes;
+    regrasPadrao.value = rp.data.regras;
+    catalogoPavimentos.value = cat.data.pavimentos;
   } catch (e: any) {
     erroFatal.value = e?.response?.data?.detail ?? 'Não foi possível abrir o cenário';
   }
+}
+
+/** Casa o pavimento deste cenário com o pavimento correspondente no catálogo
+ *  global, pela dupla (bloco, nome) — os dois carregam ids diferentes. */
+function pavimentoCatalogoIdPara(pavimentoId: number): number | null {
+  const daqui = panorama.value.find(p => p.id === pavimentoId);
+  if (!daqui) return null;
+  const doCatalogo = catalogoPavimentos.value.find(
+    p => p.bloco === daqui.bloco && p.nome === daqui.nome
+  );
+  return doCatalogo?.id ?? null;
 }
 
 /** Recarrega o cenário — o resultado e os selos mudam a cada operação. */
@@ -511,13 +618,55 @@ async function editarPanorama({ linha, chave, valor }: Alteracao) {
 
 async function adicionarRestricao() {
   await comErro(async () => {
-    const { data } = await api.post(
-      `/api/cenarios/${cenarioId.value}/restricoes`,
-      nova.value
-    );
+    const { data } = await api.post(`/api/cenarios/${cenarioId.value}/restricoes`, {
+      unidade_id: nova.value.unidade_id,
+      pavimento_id: nova.value.pavimento_id,
+      tipo: nova.value.tipo,
+    });
     restricoes.value = data.restricoes;
-    nova.value = { unidade_id: 0, pavimento_id: 0, tipo: nova.value.tipo };
+
+    if (nova.value.salvarComoPadrao) {
+      const unidade = grades.value.find(u => u.id === nova.value.unidade_id);
+      const pavimentoCatalogoId = pavimentoCatalogoIdPara(nova.value.pavimento_id);
+      if (unidade && pavimentoCatalogoId) {
+        const { data: regras } = await api.post('/api/cenarios/regras-padrao', {
+          unidade: unidade.nome,
+          pavimento_catalogo_id: pavimentoCatalogoId,
+          tipo: nova.value.tipo,
+        });
+        regrasPadrao.value = regras.regras;
+      }
+    }
+
+    nova.value = { unidade_id: 0, pavimento_id: 0, tipo: nova.value.tipo, salvarComoPadrao: false };
     await recarregarCenario();
+  });
+}
+
+async function removerRegraPadrao(r: any) {
+  await comErro(async () => {
+    await api.delete(`/api/cenarios/regras-padrao/${r.id}`);
+    regrasPadrao.value = regrasPadrao.value.filter(x => x.id !== r.id);
+  });
+}
+
+/** Adiciona uma regra padrão diretamente, sem passar pela restrição do cenário. */
+async function adicionarRegraPadraoAvulsa() {
+  const unidade = grades.value.find(u => u.id === novaRegraPadrao.value.unidade_id);
+  if (!unidade) return;
+
+  await comErro(async () => {
+    const { data } = await api.post('/api/cenarios/regras-padrao', {
+      unidade: unidade.nome,
+      pavimento_catalogo_id: novaRegraPadrao.value.pavimento_catalogo_id,
+      tipo: novaRegraPadrao.value.tipo,
+    });
+    regrasPadrao.value = data.regras;
+    novaRegraPadrao.value = {
+      unidade_id: 0,
+      pavimento_catalogo_id: 0,
+      tipo: novaRegraPadrao.value.tipo,
+    };
   });
 }
 

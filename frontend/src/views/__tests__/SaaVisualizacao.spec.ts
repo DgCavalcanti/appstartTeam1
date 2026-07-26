@@ -29,13 +29,17 @@ const PAINEL = {
   por_pavimento: [
     {
       id: 1, nome: 'Bloco E — 2º Pavimento', capacidade: 20, salas_abertas: 15,
-      ocupacao: vetor(4), salas_por_turno: vetor(4), salas_no_pico: 12,
+      ocupacao: vetor(4), nao_alocado: vetor(0), total_nao_alocado: 0,
+      salas_por_turno: vetor(4), salas_no_pico: 12,
       ocupacao_media_pct: 20, ocupacao_pico_pct: 20, clinicas: ['OFTALMOLOGIA (AMBULATÓRIO)'],
+      alertas: [],
     },
     {
       id: 2, nome: 'Bloco F — 5º Pavimento', capacidade: 22, salas_abertas: 22,
-      ocupacao: vetor(2), salas_por_turno: vetor(2), salas_no_pico: 2,
+      ocupacao: vetor(2), nao_alocado: vetor(0), total_nao_alocado: 0,
+      salas_por_turno: vetor(2), salas_no_pico: 2,
       ocupacao_media_pct: 9, ocupacao_pico_pct: 9, clinicas: ['CARDIOLOGIA (AMBULATÓRIO)'],
+      alertas: [],
     },
   ],
   por_turno: turnos.map((t, i) => ({
@@ -113,9 +117,14 @@ describe('SaaVisualizacao.vue', () => {
     expect(cabecalhos).toContain('Pavimento');
     expect(cabecalhos).toContain('Bloco');
 
-    const primeira = wrapper.find('tbody tr').findAll('td');
-    expect(primeira[1].text()).toBe('2º Pavimento'); // coluna Pavimento (andar)
-    expect(primeira[2].text()).toBe('Bloco E');       // coluna Bloco
+    // A lista vem em ordem alfabética (visão secundária) — busca a linha da
+    // OFTALMOLOGIA pelo nome em vez de assumir a posição.
+    const linha = wrapper
+      .findAll('tbody tr')
+      .find(tr => tr.text().includes('OFTALMOLOGIA'))!;
+    const celulas = linha.findAll('td');
+    expect(celulas[1].text()).toBe('2º Pavimento'); // coluna Pavimento (andar)
+    expect(celulas[2].text()).toBe('Bloco E');       // coluna Bloco
   });
 
   it('busca por nome de clínica (oftalmologia)', async () => {

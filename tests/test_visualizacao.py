@@ -120,6 +120,69 @@ class TestPorPavimento:
         }
         assert todas == {"CARDIOLOGIA", "ORTOPEDIA", "PEDIATRIA"}
 
+    def test_sem_sobra_nao_ha_demanda_nao_alocada_nem_alerta(self):
+        # Cenário base: as três clínicas cabem inteiras — nenhum pavimento
+        # deveria mostrar demanda não alocada nem alerta.
+        painel = montar_visualizacao()
+        for p in painel["por_pavimento"]:
+            assert p["total_nao_alocado"] == 0
+            assert sum(p["nao_alocado"]) == 0
+            assert p["alertas"] == []
+
+    def test_obrigatoriedade_problematica_gera_alerta_no_pavimento(self):
+        # Força as três clínicas (24 estações de demanda no pico) no pavimento
+        # de 12 estações: a obrigatoriedade cria sobra ali, e só ali.
+        async def rodar(sessao):
+            cenario = await montar_cenario(sessao)
+            restricoes = RestricoesService(sessao)
+            for unidade in cenario.unidades:
+                await restricoes.definir(
+                    cenario, unidade.id, cenario.pavimentos[1].id, OBRIGATORIO
+                )
+            from src.services import AlocacaoService
+
+            await AlocacaoService(sessao).executar(cenario)
+            return VisualizacaoService(sessao).montar(cenario)
+
+        painel = executar(rodar)
+        pavimentos = {p["id"]: p for p in painel["por_pavimento"]}
+
+        forcado = next(p for p in painel["por_pavimento"] if p["clinicas"])
+        assert forcado["total_nao_alocado"] == 12
+        assert len(forcado["alertas"]) == 1
+        assert forcado["alertas"][0]["tipo"] == "obrigatoriedade_problematica"
+
+        # O outro pavimento, sem ocupantes, não tem sobra nem alerta.
+        vazio = next(p for p in painel["por_pavimento"] if not p["clinicas"])
+        assert vazio["total_nao_alocado"] == 0
+        assert vazio["alertas"] == []
+
+    def test_excesso_sem_obrigatoriedade_gera_alerta_generico(self):
+        # Ajuste manual (etapa 6) pode deixar sobra sem nenhuma obrigatoriedade
+        # por trás — o alerta então é "excesso", não "obrigatoriedade".
+        async def rodar(sessao):
+            cenario = await montar_cenario(sessao, com_resultado=True)
+            from src.services import AlocacaoService
+
+            servico = AlocacaoService(sessao)
+            unidade = next(u for u in cenario.unidades if u.unidade_nome == "CARDIOLOGIA")
+            # A demanda de CARDIOLOGIA em segunda/manhã é 10; força metade a
+            # ficar sem sala mesmo sem nenhuma obrigatoriedade envolvida.
+            await servico.ajustar(cenario, unidade.id, "segunda", "manha", 5)
+            return VisualizacaoService(sessao).montar(cenario)
+
+        painel = executar(rodar)
+        afetado = next(
+            p for p in painel["por_pavimento"] if "CARDIOLOGIA" in p["clinicas"]
+        )
+        assert afetado["total_nao_alocado"] == 5
+        assert afetado["alertas"] == [
+            {
+                "tipo": "excesso",
+                "mensagem": "Capacidade excedida: 5 grade(s) sem sala neste pavimento.",
+            }
+        ]
+
 
 class TestPorTurno:
 
@@ -150,6 +213,16 @@ class TestPorClinica:
         for c in painel["por_clinica"]:
             assert c["pavimento"] is not None
             assert c["total_alocado"] + c["total_nao_alocado"] > 0
+
+    def test_bloco_e_pavimento_vem_separados_do_completo(self):
+        # Bloco e pavimento (nome curto) precisam vir como campos distintos —
+        # é o que permite a tela filtrar por cada um independentemente; o
+        # completo continua disponível para tooltip/compatibilidade.
+        painel = montar_visualizacao()
+        for c in painel["por_clinica"]:
+            assert c["bloco"]
+            assert c["pavimento"]
+            assert c["pavimento_completo"] == f"{c['bloco']} — {c['pavimento']}"
 
     def test_clinicas_com_sobra_vem_primeiro(self):
         async def rodar(sessao):

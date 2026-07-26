@@ -35,6 +35,13 @@ class GradesService:
             for item in unidade.demandas:
                 demanda[indice_turno(item.dia_semana, item.turno)] = item.quantidade
 
+            # Especialidade é só dado auxiliar de auditoria — nunca decide
+            # pavimento nem demanda. Aqui vira a lista de especialidades que
+            # essa Unidade_Funcional trouxe na grade, para o gestor conferir.
+            especialidades = sorted(
+                {s.especialidade for s in unidade.slots if s.especialidade}
+            )
+
             linhas.append(
                 {
                     "id": unidade.id,
@@ -46,6 +53,7 @@ class GradesService:
                     # Os ~7% de casos de profissional em duas clínicas no mesmo
                     # turno. A etapa 2 destaca para o gestor conferir.
                     "slots_em_revisao": sum(1 for s in unidade.slots if s.revisar),
+                    "especialidades": especialidades,
                 }
             )
         return linhas

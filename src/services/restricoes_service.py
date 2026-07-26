@@ -15,16 +15,87 @@ Referência: SAA_Arquitetura.pdf, seções 7 e 8.
 from __future__ import annotations
 
 import logging
+from typing import Iterable, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entidades import OBRIGATORIO, PREFERENCIAL
-from src.models.saa import Alocacao, Restricao
+from src.domain.entidades import OBRIGATORIO, PREFERENCIAL, Clinica
+from src.domain.importacao import normalizar
+from src.models.saa import Alocacao, Restricao, RestricaoPadrao
 from src.services.processo_service import ProcessoService
 
 logger = logging.getLogger(__name__)
 
 ETAPA_RESTRICOES = 4
+
+#: Peso da regra padrão na nota de afinidade — mesmo peso da preferência
+#: manual do gestor (seção 13 do documento deixa os pesos em aberto).
+PESO_PREFERENCIA_PADRAO = 1.0
+
+
+# ---------------------------------------------------------------------------
+# Regras padrão → pesos do motor (pré-alocação)
+# ---------------------------------------------------------------------------
+#
+# Funções puras, sem sessão: usadas tanto na prévia da importação quanto na
+# execução inicial ao criar um cenário, para que a pré-alocação já saia
+# ponderada pelas regras padrão do catálogo — em vez de só persistir a
+# restrição e deixar o resultado desatualizado até o gestor reexecutar a
+# etapa 5 à mão.
+
+
+def resolver_regras_padrao(
+    regras: Iterable[RestricaoPadrao],
+    pavimentos_bloco_nome: Sequence[tuple[str, str]],
+) -> tuple[tuple[str, int, str], ...]:
+    """
+    Casa cada regra padrão do catálogo com o índice 1..N do pavimento deste
+    cálculo, pela dupla (bloco, nome).
+
+    `pavimentos_bloco_nome` precisa estar na MESMA ordem/índice dos pavimentos
+    que vão para o motor (1-based) — é assim que a regra aponta para "o
+    3º pavimento desta lista" em vez de um id de catálogo que o cálculo atual
+    nem conhece. Regra cujo pavimento não está entre os informados (ex.: painel
+    de salas customizado sem aquele pavimento) é ignorada.
+
+    Devolve triplas (unidade_normalizada, pavimento_indice, tipo) — o formato
+    comum entre a persistência (`RestricaoPadraoEntrada`) e o motor
+    (`pesos_do_motor`).
+    """
+    indice_por_bloco_nome = {
+        par: indice for indice, par in enumerate(pavimentos_bloco_nome, start=1)
+    }
+    resolvidas = []
+    for regra in regras:
+        indice = indice_por_bloco_nome.get((regra.pavimento.bloco, regra.pavimento.nome))
+        if indice is None:
+            continue
+        resolvidas.append((regra.unidade_normalizada, indice, regra.tipo))
+    return tuple(resolvidas)
+
+
+def pesos_do_motor(
+    regras_resolvidas: Iterable[tuple[str, int, str]],
+    clinicas: Iterable[Clinica],
+) -> tuple[dict[int, int], dict[tuple[int, int], float]]:
+    """
+    Traduz regras padrão já resolvidas (unidade_normalizada, pavimento_indice,
+    tipo) em `obrigatorias`/`afinidade` — os dois parâmetros que
+    `EntradaAlocacao` espera do motor.
+    """
+    ids_por_unidade = {normalizar(c.nome): c.id for c in clinicas}
+    obrigatorias: dict[int, int] = {}
+    afinidade: dict[tuple[int, int], float] = {}
+    for unidade_normalizada, pavimento_indice, tipo in regras_resolvidas:
+        clinica_id = ids_por_unidade.get(unidade_normalizada)
+        if clinica_id is None:
+            continue
+        if tipo == OBRIGATORIO:
+            obrigatorias[clinica_id] = pavimento_indice
+        elif tipo == PREFERENCIAL:
+            chave = (clinica_id, pavimento_indice)
+            afinidade[chave] = afinidade.get(chave, 0.0) + PESO_PREFERENCIA_PADRAO
+    return obrigatorias, afinidade
 
 
 class RestricoesService:

@@ -5,8 +5,14 @@
     <section class="bg-white rounded-lg shadow-paper p-6">
       <h2 class="text-lg font-semibold text-paper-text mb-1">Etapa 1 — Importação</h2>
       <p class="text-sm text-gray-500 mb-4">
-        Envie a exportação de grades do AGHU (.csv ou .xlsx). As linhas brutas são
-        tratadas em memória e não são gravadas.
+        Envie a exportação da view <code class="px-1 py-0.5 bg-gray-100 rounded text-xs">vw_grades</code>
+        do AGHU (.csv ou .xlsx) — é o único arquivo que o sistema espera. A
+        alocação é feita por <strong>Unidade_Funcional</strong> (a clínica); a
+        coluna Especialidade, quando presente, é só guardada como dado de
+        auditoria e não influencia pavimento nem demanda. Salas, pavimentos e
+        restrições não vêm de arquivo — são editados pelo gestor abaixo e nas
+        etapas seguintes. As linhas brutas são tratadas em memória e não são
+        gravadas.
       </p>
 
       <label
@@ -61,18 +67,53 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-6">
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mt-6">
         <div v-for="d in descartes" :key="d.rotulo" class="bg-gray-50 rounded p-3">
           <p class="text-xs text-gray-500">{{ d.rotulo }}</p>
           <p class="text-lg font-semibold text-paper-text tabular-nums">{{ d.valor }}</p>
         </div>
+        <div class="bg-paper-info/10 rounded p-3">
+          <p class="text-xs text-gray-500">Unidades novas</p>
+          <p class="text-lg font-semibold text-paper-text tabular-nums">{{ unidadesNovas.length }}</p>
+        </div>
       </div>
 
-      <p v-if="dados.relatorio.slots_em_revisao > 0" class="mt-4 text-sm text-paper-text bg-paper-warning/10 border border-paper-warning/30 rounded p-3">
-        <strong>{{ dados.relatorio.slots_em_revisao }}</strong> slots marcados para revisão —
-        profissionais que atendem em duas clínicas no mesmo turno. Contam nas duas,
-        e a etapa 2 permitirá conferir.
-      </p>
+      <div v-if="dados.relatorio.slots_em_revisao > 0" class="mt-4">
+        <div class="text-sm text-paper-text bg-paper-warning/10 border border-paper-warning/30 rounded p-3">
+          <strong>{{ dados.relatorio.slots_em_revisao }}</strong> slots marcados para revisão —
+          profissionais que atendem em duas ou mais clínicas no mesmo turno. O sistema já
+          escolheu automaticamente uma única unidade para cada um (não contam em dobro na
+          demanda); a etapa 2 destaca esses casos para conferência, e o gestor pode ajustar
+          manualmente a quantidade de grades daquela unidade/turno se a escolha não refletir
+          a realidade.
+        </div>
+
+        <details class="mt-2">
+          <summary class="text-xs text-paper-info hover:underline cursor-pointer">
+            ver os casos ({{ dados.slots_em_revisao.length }})
+          </summary>
+          <div class="mt-2 max-h-48 overflow-y-auto border border-gray-200 rounded">
+            <table class="w-full text-xs border-collapse">
+              <thead class="sticky top-0 bg-gray-50">
+                <tr class="text-gray-500 border-b border-gray-200">
+                  <th class="text-left py-1.5 px-2 font-medium">Profissional</th>
+                  <th class="text-left px-2 font-medium">Unidade</th>
+                  <th class="text-left px-2 font-medium">Dia</th>
+                  <th class="text-left px-2 font-medium">Turno</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(s, i) in dados.slots_em_revisao" :key="i" class="border-b border-gray-100">
+                  <td class="py-1 px-2 text-paper-text">{{ s.profissional }}</td>
+                  <td class="px-2 text-gray-600">{{ s.unidade }}</td>
+                  <td class="px-2 text-gray-600 capitalize">{{ s.dia }}</td>
+                  <td class="px-2 text-gray-600 capitalize">{{ s.periodo }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </div>
     </section>
 
     <!-- ── 3. Unidades que não participam ──────────────────────────────── -->
@@ -146,17 +187,24 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(p, i) in pavimentos" :key="i" class="border-b border-gray-100">
-              <td class="py-1.5 pr-3 text-paper-text whitespace-nowrap">{{ p.nome_completo }}</td>
-              <td v-for="campo in CAMPOS_SALA" :key="campo" class="px-1 text-center">
-                <input
-                  type="number" min="0"
-                  v-model.number="p[campo]"
-                  class="w-14 px-1 py-1 border border-gray-300 rounded text-sm text-center tabular-nums"
-                />
-              </td>
-              <td class="pl-3 text-right tabular-nums font-medium">{{ capacidadeDe(p) }}</td>
-            </tr>
+            <template v-for="(p, i) in pavimentos" :key="i">
+              <tr v-if="mudaDeAndar(i)" class="bg-gray-50">
+                <td colspan="7" class="py-1 pr-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Pavimento {{ p.andar || '—' }}
+                </td>
+              </tr>
+              <tr class="border-b border-gray-100">
+                <td class="py-1.5 pr-3 text-paper-text whitespace-nowrap">{{ p.nome_completo }}</td>
+                <td v-for="campo in CAMPOS_SALA" :key="campo" class="px-1 text-center">
+                  <input
+                    type="number" min="0"
+                    v-model.number="p[campo]"
+                    class="w-14 px-1 py-1 border border-gray-300 rounded text-sm text-center tabular-nums"
+                  />
+                </td>
+                <td class="pl-3 text-right tabular-nums font-medium">{{ capacidadeDe(p) }}</td>
+              </tr>
+            </template>
           </tbody>
           <tfoot>
             <tr class="text-sm">
@@ -198,6 +246,26 @@
           <p class="text-xs text-gray-500">Pico de demanda</p>
           <p class="text-2xl font-semibold text-paper-text tabular-nums">{{ picoDemanda }}</p>
         </div>
+      </div>
+
+      <!-- Regras padrão que já pesaram nesta prévia -->
+      <div
+        v-if="dados.regras_padrao_aplicadas?.length"
+        class="mb-6 bg-paper-info/10 border border-paper-info/30 rounded p-3"
+      >
+        <p class="text-sm font-medium text-paper-text mb-1">
+          {{ dados.regras_padrao_aplicadas.length }} regra(s) padrão do catálogo já
+          pesaram nesta pré-alocação
+        </p>
+        <ul class="text-xs text-gray-600 space-y-0.5">
+          <li v-for="(r, i) in dados.regras_padrao_aplicadas" :key="i">
+            <strong>{{ r.unidade }}</strong> → {{ r.pavimento }}
+            <span
+              class="ml-1 px-1 py-0.5 rounded"
+              :class="r.tipo === 'obrigatorio' ? 'bg-paper-danger/15' : 'bg-paper-info/15'"
+            >{{ r.tipo === 'obrigatorio' ? 'obrigatória' : 'preferencial' }}</span>
+          </li>
+        </ul>
       </div>
 
       <!-- Ocupação por pavimento -->
@@ -375,7 +443,7 @@ interface Cenario {
 interface Clinica { id: number; nome: string; demanda: number[]; total: number; pico: number }
 interface ResultadoClinica {
   clinica_id: number; nome: string;
-  bloco: string | null; pavimento: string | null;
+  bloco: string | null; pavimento: string | null; pavimento_completo: string | null;
   alocado: number[]; nao_alocado: number[];
   total_alocado: number; total_nao_alocado: number;
 }
@@ -393,6 +461,8 @@ interface Relatorio {
   descartadas_por_noite: number; slots_em_revisao: number;
 }
 interface UnidadeVista { nome: string; participa: boolean; nova: boolean }
+interface SlotEmRevisao { profissional: string; unidade: string; dia: string; periodo: string }
+interface RegraPadraoAplicada { unidade: string; pavimento: string; tipo: string }
 interface Resposta {
   arquivo: string;
   turnos: Turno[];
@@ -400,6 +470,8 @@ interface Resposta {
   unidades: UnidadeVista[];
   clinicas: Clinica[];
   unidades_novas: string[];
+  slots_em_revisao: SlotEmRevisao[];
+  regras_padrao_aplicadas: RegraPadraoAplicada[];
   alocacao: {
     total_alocado: number; total_nao_alocado: number;
     por_clinica: ResultadoClinica[]; por_pavimento: OcupacaoPavimento[];
@@ -417,7 +489,7 @@ const nomeCenario = ref('');
 const cenarios = ref<Cenario[]>([]);
 
 interface PavimentoEditavel {
-  bloco: string; nome: string; nome_completo: string;
+  bloco: string; nome: string; nome_completo: string; andar: number;
   padrao_1est: number; padrao_2est: number;
   esp_1est: number; esp_2est: number; fechada: number;
   [campo: string]: string | number;
@@ -460,6 +532,15 @@ function capacidadeDe(p: PavimentoEditavel): number {
 const capacidadeTotal = computed(() =>
   pavimentos.value.reduce((s, p) => s + capacidadeDe(p), 0)
 );
+
+/**
+ * A lista já vem agrupada por andar (o backend ordena assim); aqui só
+ * decidimos onde começa cada grupo, comparando com o pavimento anterior.
+ */
+function mudaDeAndar(indice: number): boolean {
+  if (indice === 0) return true;
+  return pavimentos.value[indice].andar !== pavimentos.value[indice - 1].andar;
+}
 
 const picoDemanda = computed(() => {
   if (!dados.value?.alocacao) return 0;

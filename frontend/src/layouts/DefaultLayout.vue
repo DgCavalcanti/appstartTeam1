@@ -37,18 +37,6 @@
           <ArrowUpTrayIcon class="h-5 w-5" />
           <span>1 — Importação</span>
         </router-link>
-
-        <div class="px-4 pt-4 pb-1">
-          <div class="border-t border-white border-opacity-20"></div>
-        </div>
-
-        <router-link
-          to="/saa/padroes"
-          class="flex items-center space-x-2 py-2.5 px-4 rounded transition duration-200 hover:bg-paper-active-link hover:text-white"
-        >
-          <Cog6ToothIcon class="h-5 w-5" />
-          <span>Padrões</span>
-        </router-link>
       </nav>
     </aside>
 
@@ -69,7 +57,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowUpTrayIcon, Bars3Icon, Cog6ToothIcon, CubeTransparentIcon } from '@heroicons/vue/24/outline';
+import { ArrowUpTrayIcon, Bars3Icon, CubeTransparentIcon } from '@heroicons/vue/24/outline';
 
 const sidebarOpen = ref(false);
 const route = useRoute();

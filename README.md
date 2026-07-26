@@ -157,6 +157,27 @@ SQLITE_DSN="sqlite+aiosqlite:///tmp_limpo.db" uv run alembic revision --autogene
 O teste `test_a_migracao_cria_as_mesmas_tabelas_dos_modelos` existe justamente
 para pegar esse descuido.
 
+## Docker
+
+Uma imagem única builda o frontend e serve tudo (API + SPA) pelo FastAPI, na
+porta 8000 — sem precisar dos dois processos do modo dev.
+
+```bash
+docker compose up --build
+```
+
+Abra **http://localhost:8000** (a SPA e a API dividem a mesma origem; a
+documentação interativa continua em **http://localhost:8000/docs**).
+
+O SQLite fica no volume nomeado `saa_dados` (`docker-compose.yml`), então os
+cenários sobrevivem a `docker compose down` — só `docker compose down -v`
+apaga o banco. Sem `docker-compose`, o mesmo resultado sai de:
+
+```bash
+docker build -t saa .
+docker run -p 8000:8000 -v saa_dados:/data saa
+```
+
 ## Documentação
 
 - **[docs/SETUP.md](docs/SETUP.md)** — instalação passo a passo e solução de problemas

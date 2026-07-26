@@ -19,11 +19,17 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entidades import TURNOS
+from src.domain.alocacao import EntradaAlocacao, SolverHeuristico
+from src.domain.entidades import TURNOS, Pavimento as PavimentoDominio
 from src.domain.importacao import Catalogo, importar, normalizar, para_clinicas
 from src.domain.importacao.leitor import ErroDeLeitura
 from src.models.saa import Alocacao
-from src.repositories import AlocacaoRepository, CatalogoRepository, PavimentoEntrada
+from src.repositories import (
+    AlocacaoRepository,
+    CatalogoRepository,
+    PavimentoEntrada,
+    RestricaoPadraoEntrada,
+)
 from src.resources.database import get_app_db_session
 from src.services import (
     AlocacaoService,
@@ -32,6 +38,8 @@ from src.services import (
     ProcessoService,
     RestricoesService,
     VisualizacaoService,
+    pesos_do_motor,
+    resolver_regras_padrao,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,8 +70,10 @@ async def obter_padroes(sessao: AsyncSession = Depends(get_app_db_session)):
     return {
         "pavimentos": [
             {
+                "id": p.id,
                 "bloco": p.bloco,
                 "nome": p.nome,
+                "andar": p.andar,
                 "nome_completo": f"{p.bloco} — {p.nome}",
                 "padrao_1est": p.padrao_1est,
                 "padrao_2est": p.padrao_2est,
@@ -77,6 +87,84 @@ async def obter_padroes(sessao: AsyncSession = Depends(get_app_db_session)):
         "turnos": [{"dia": d, "periodo": t} for d, t in TURNOS],
         "unidades_excluidas": sorted(await catalogo.unidades_excluidas()),
     }
+
+
+# ---------------------------------------------------------------------------
+# Regras padrão — catálogo global de obrigatoriedade/preferência
+#
+# Por Unidade_Funcional + pavimento. Aplicadas como pré-configuração a cada
+# NOVO cenário (ver `_resolver_restricoes_padrao`, mais abaixo). Editar ou
+# remover uma regra aqui não altera cenários já criados — cada um guarda sua
+# própria cópia das restrições desde a criação.
+#
+# Registradas antes de `/{cenario_id}` de propósito: rotas estáticas precisam
+# vir antes das dinâmicas, senão "/regras-padrao" seria interpretado como um
+# `cenario_id` inválido.
+# ---------------------------------------------------------------------------
+
+
+class NovaRegraPadrao(BaseModel):
+    unidade: str
+    pavimento_catalogo_id: int
+    tipo: str
+
+
+def _serializar_regra_padrao(r) -> dict:
+    return {
+        "id": r.id,
+        "unidade": r.nome_unidade,
+        "pavimento_catalogo_id": r.pavimento_catalogo_id,
+        "pavimento": f"{r.pavimento.bloco} — {r.pavimento.nome}",
+        "tipo": r.tipo,
+    }
+
+
+@router.get(
+    "/regras-padrao",
+    summary="Listar as regras padrão (obrigatoriedade/preferência) do catálogo",
+    description=(
+        "Regras por Unidade_Funcional + pavimento aplicadas como pré-"
+        "configuração a cada NOVO cenário. Editar aqui não altera cenários já "
+        "criados."
+    ),
+)
+async def listar_regras_padrao(sessao: AsyncSession = Depends(get_app_db_session)):
+    catalogo = CatalogoRepository(sessao)
+    regras = await catalogo.listar_restricoes_padrao()
+    return {"regras": [_serializar_regra_padrao(r) for r in regras]}
+
+
+@router.post(
+    "/regras-padrao",
+    status_code=status.HTTP_201_CREATED,
+    summary="Definir uma regra padrão",
+)
+async def definir_regra_padrao(
+    nova: NovaRegraPadrao, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    catalogo = CatalogoRepository(sessao)
+    try:
+        await catalogo.definir_restricao_padrao(
+            nova.unidade, nova.pavimento_catalogo_id, nova.tipo
+        )
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
+    await sessao.commit()
+    regras = await catalogo.listar_restricoes_padrao()
+    return {"regras": [_serializar_regra_padrao(r) for r in regras]}
+
+
+@router.delete("/regras-padrao/{regra_id}", summary="Remover uma regra padrão")
+async def remover_regra_padrao(
+    regra_id: int, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    catalogo = CatalogoRepository(sessao)
+    if not await catalogo.remover_restricao_padrao(regra_id):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"regra padrão {regra_id} não encontrada"
+        )
+    await sessao.commit()
+    return {"removida": True}
 
 
 # ---------------------------------------------------------------------------
@@ -162,11 +250,41 @@ async def criar_cenario(
         if normalizar(nome) in excluidas_norm
     )
 
+    # Pré-configuração: as regras padrão do catálogo (obrigatoriedade/preferência
+    # por Unidade_Funcional + pavimento) viram restrições deste cenário novo. É
+    # só o ponto de partida — o gestor edita/remove na etapa 4 sem alterar o
+    # padrão global, e o padrão global só afeta cenários criados depois dele.
+    #
+    # Resolvidas ANTES do motor rodar de propósito: a pré-alocação (a execução
+    # inicial, aqui) já precisa sair ponderada por elas — não só depois que o
+    # gestor reexecutar a etapa 5 manualmente.
+    restricoes_padrao = await _resolver_restricoes_padrao(catalogo, entradas)
+
+    resultado = None
+    if clinicas and entradas:
+        dominio = tuple(
+            PavimentoDominio(id=i, nome=e.nome_completo, capacidade=e.capacidade)
+            for i, e in enumerate(entradas, start=1)
+        )
+        obrigatorias, afinidade = pesos_do_motor(
+            (
+                (r.unidade_normalizada, r.pavimento_indice, r.tipo)
+                for r in restricoes_padrao
+            ),
+            clinicas,
+        )
+        resultado = SolverHeuristico().resolver(
+            EntradaAlocacao(
+                clinicas=clinicas,
+                pavimentos=dominio,
+                obrigatorias=obrigatorias,
+                afinidade=afinidade,
+            )
+        )
+
     # O catálogo aprende as unidades novas que o arquivo trouxe.
     await catalogo.aprender_unidades(list(importacao.unidades_vistas))
 
-    # Cria o cenário sem resultado; a alocação roda logo abaixo, depois de
-    # herdar as restrições padrão, para já sair respeitando-as.
     repo = AlocacaoRepository(sessao)
     cenario = await repo.criar(
         nome=nome_cenario,
@@ -174,22 +292,11 @@ async def criar_cenario(
         slots=importacao.slots,
         demandas=importacao.demandas,
         pavimentos=entradas,
-        resultado=None,
+        resultado=resultado,
         unidades_excluidas=excluidas_vistas,
+        restricoes_padrao=restricoes_padrao,
     )
     cenario_id = cenario.id
-    await sessao.flush()
-
-    # Recarrega com as coleções carregadas (unidades, pavimentos): o objeto
-    # recém-criado guarda os filhos num dict local, não na coleção do cenário.
-    cenario = await repo.obter(cenario_id)
-
-    # Herda o padrão de obrigatoriedades e preferências, então executa o motor —
-    # a alocação inicial já considera as restrições padrão.
-    await catalogo.semear_restricoes_no_cenario(cenario)
-    if any(u.participa for u in cenario.unidades) and cenario.pavimentos:
-        await AlocacaoService(sessao).executar(cenario)
-
     await sessao.commit()
     sessao.expunge_all()
 
@@ -585,8 +692,9 @@ async def _detalhar(repo: AlocacaoRepository, cenario_id: int) -> dict:
             {
                 "nome": unidade.unidade_nome,
                 "participa": unidade.participa,
-                # Bloco e pavimento (andar) separados — colunas e filtros
-                # distintos na tela; o completo fica para tooltip.
+                # Bloco e pavimento (nome curto) separados — permite filtrar por
+                # cada um independentemente na tela; o completo fica para
+                # tooltip e para quem só quer o texto pronto.
                 "bloco": destino.bloco if destino else None,
                 "pavimento": destino.nome if destino else None,
                 "pavimento_completo": destino.nome_completo if destino else None,
@@ -613,6 +721,7 @@ async def _detalhar(repo: AlocacaoRepository, cenario_id: int) -> dict:
                 "id": p.id,
                 "bloco": p.bloco,
                 "nome": p.nome,
+                "andar": p.andar,
                 "nome_completo": p.nome_completo,
                 "padrao_1est": p.padrao_1est,
                 "padrao_2est": p.padrao_2est,
@@ -648,6 +757,32 @@ def _lista(bruto: str | None, campo: str) -> frozenset[str]:
     return frozenset(str(v) for v in valores)
 
 
+async def _resolver_restricoes_padrao(
+    catalogo: CatalogoRepository, entradas: tuple[PavimentoEntrada, ...]
+) -> tuple[RestricaoPadraoEntrada, ...]:
+    """
+    Resolve as regras padrão do catálogo contra os pavimentos deste cenário.
+
+    Casa cada regra pelo (bloco, nome) do pavimento do catálogo com o índice
+    1..N que `entradas` recebeu — o mesmo esquema usado pelo restante de
+    `criar()`. Uma regra cujo pavimento não está entre os `entradas` deste
+    cenário (ex.: painel de salas customizado sem aquele pavimento) é ignorada.
+    """
+    regras = await catalogo.listar_restricoes_padrao()
+    if not regras:
+        return ()
+
+    resolvidas = resolver_regras_padrao(regras, [(e.bloco, e.nome) for e in entradas])
+    return tuple(
+        RestricaoPadraoEntrada(
+            unidade_normalizada=unidade_normalizada,
+            pavimento_indice=indice,
+            tipo=tipo,
+        )
+        for unidade_normalizada, indice, tipo in resolvidas
+    )
+
+
 async def _pavimentos(
     bruto: str | None, sessao: AsyncSession
 ) -> tuple[PavimentoEntrada, ...]:
@@ -665,12 +800,15 @@ async def _pavimentos(
             PavimentoEntrada(
                 bloco=p.bloco,
                 nome=p.nome,
+                andar=p.andar,
                 padrao_1est=p.padrao_1est,
                 padrao_2est=p.padrao_2est,
                 esp_1est=p.esp_1est,
                 esp_2est=p.esp_2est,
                 fechada=p.fechada,
             )
+            # Já vem ordenado por andar (catalogo.listar_pavimentos) — a
+            # ordem aqui é a mesma que os índices 1..N atribuídos abaixo.
             for p in await catalogo.listar_pavimentos()
         )
 
@@ -692,6 +830,7 @@ async def _pavimentos(
             PavimentoEntrada(
                 bloco=str(e.get("bloco") or ""),
                 nome=str(e.get("nome") or f"Pavimento {i}"),
+                andar=int(e.get("andar", 0)),
                 padrao_1est=int(e.get("padrao_1est", 0)),
                 padrao_2est=int(e.get("padrao_2est", 0)),
                 esp_1est=int(e.get("esp_1est", 0)),

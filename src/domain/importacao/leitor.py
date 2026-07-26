@@ -27,13 +27,17 @@ COLUNAS_NECESSARIAS: tuple[str, ...] = (
 )
 
 #: Colunas que a exportação traz mas a alocação ignora (passo 6).
-#: Vale o turno completo, então o horário exato não importa; a especialidade
-#: não entra na alocação e a quantidade de vagas não afeta ocupação de sala.
+#: Vale o turno completo, então o horário exato não importa, e a quantidade de
+#: vagas não afeta ocupação de sala.
+#:
+#: `Especialidade` NÃO entra aqui: ela nunca decide pavimento nem demanda
+#: agregada, mas é preservada como dado auxiliar de auditoria em `grade_slot`
+#: (ver `regras.deduplicar_em_slots`). Descartá-la aqui apagaria essa
+#: informação antes mesmo de o passo 8 poder carregá-la.
 COLUNAS_IRRELEVANTES: tuple[str, ...] = (
     "Hora_Inicio",
     "Hora_Início",
     "Quantidade_Vagas",
-    "Especialidade",
     "Grade",
 )
 

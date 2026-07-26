@@ -83,7 +83,10 @@ class Alocacao(Base):
         back_populates="alocacao",
         cascade="all, delete-orphan",
         lazy="selectin",
-        order_by="Pavimento.id",
+        # Pavimento 1 e seus blocos, depois pavimento 2 e os seus, e assim por
+        # diante — nunca alfabético por nome de bloco. `id` desempata dentro do
+        # mesmo andar, preservando a ordem em que os blocos foram informados.
+        order_by="Pavimento.andar, Pavimento.id",
     )
     restricoes: Mapped[list["Restricao"]] = relationship(
         back_populates="alocacao",
@@ -184,6 +187,9 @@ class Pavimento(Base):
     )
     bloco: Mapped[str] = mapped_column(String(100), nullable=False)
     nome: Mapped[str] = mapped_column(String(100), nullable=False)
+    #: Número do andar no prédio (1 = térreo). É por ele que a listagem se
+    #: agrupa — nunca por ordem alfabética de bloco.
+    andar: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     padrao_1est: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     padrao_2est: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -268,8 +274,10 @@ class GradeSlot(Base):
     Camada de origem: uma linha por profissional × dia × turno já tratado.
 
     É o grão auditável da demanda (~1.400 linhas no arquivo real) e permite
-    reprocessar sem reimportar. Não guarda especialidade nem condição de
-    atendimento — ambas são descartadas no tratamento.
+    reprocessar sem reimportar. Não guarda condição de atendimento — descartada
+    no tratamento. Guarda `especialidade` apenas como dado auxiliar de
+    auditoria: ela nunca decide unidade, pavimento nem demanda agregada — quem
+    decide é sempre `Unidade_Funcional`.
 
     `revisar` marca os casos em que o profissional atende duas clínicas no mesmo
     turno, para a etapa 2 destacar.
@@ -287,6 +295,8 @@ class GradeSlot(Base):
     dia_semana: Mapped[str] = mapped_column(String(20), nullable=False)
     turno: Mapped[str] = mapped_column(String(20), nullable=False)
     revisar: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: Auxiliar de auditoria — nunca usada para decidir pavimento ou demanda.
+    especialidade: Mapped[str | None] = mapped_column(String(400), nullable=True)
 
     unidade: Mapped["AlocacaoUnidade"] = relationship(back_populates="slots")
 
@@ -385,6 +395,9 @@ class PavimentoCatalogo(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     bloco: Mapped[str] = mapped_column(String(100), nullable=False)
     nome: Mapped[str] = mapped_column(String(100), nullable=False)
+    #: Número do andar no prédio (1 = térreo). É por ele que a listagem se
+    #: agrupa — pavimento 1 e seus blocos, depois pavimento 2 e os seus, etc.
+    andar: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     padrao_1est: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     padrao_2est: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -401,36 +414,30 @@ class PavimentoCatalogo(Base):
             esp_2est=self.esp_2est,
         )
 
-    @property
-    def nome_completo(self) -> str:
-        return f"{self.bloco} — {self.nome}"
 
-
-class RestricaoCatalogo(Base):
+class RestricaoPadrao(Base):
     """
-    Restrição padrão: liga uma clínica a um pavimento por default.
+    Regra padrão de obrigatoriedade/preferência, por Unidade_Funcional e pavimento.
 
-    Sobrevive entre cenários. Ao criar um novo cenário, cada restrição padrão é
-    copiada para ele — casando a clínica pelo nome normalizado e o pavimento
-    pelo bloco/nome. É o ponto de partida da etapa 4; o gestor ajusta por
-    cenário depois.
+    Vive no catálogo global — sobrevive entre cenários. Ao criar um novo
+    cenário, essas regras são copiadas como restrições daquele cenário (pré-
+    configuração); dali em diante o gestor edita a cópia livremente, sem afetar
+    o padrão global, e editar/remover o padrão não altera cenários já criados.
 
-    A clínica é referenciada por nome (não por FK ao catálogo de unidades)
-    porque o que casa com o cenário é a forma normalizada do nome.
+    `nome_unidade` guarda a grafia original (para exibição); a comparação com
+    a grade importada usa sempre a forma normalizada.
     """
 
-    __tablename__ = "restricao_catalogo"
+    __tablename__ = "restricao_padrao"
     __table_args__ = (
         UniqueConstraint(
-            "unidade_normalizada", "pavimento_catalogo_id", "tipo", name="uq_restricao_catalogo"
+            "unidade_normalizada", "pavimento_catalogo_id", name="uq_restricao_padrao"
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    #: Nome da clínica na grafia original, para exibição.
-    unidade_nome: Mapped[str] = mapped_column(String(200), nullable=False)
-    #: Forma normalizada — é por ela que casa com a unidade do cenário.
-    unidade_normalizada: Mapped[str] = mapped_column(String(200), nullable=False)
+    nome_unidade: Mapped[str] = mapped_column(String(200), nullable=False)
+    unidade_normalizada: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     pavimento_catalogo_id: Mapped[int] = mapped_column(
         ForeignKey("pavimento_catalogo.id", ondelete="CASCADE"), nullable=False
     )

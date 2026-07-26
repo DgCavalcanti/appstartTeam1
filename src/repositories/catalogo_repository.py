@@ -16,12 +16,7 @@ from sqlalchemy import select
 
 from src.domain.entidades import OBRIGATORIO, PREFERENCIAL
 from src.domain.importacao import normalizar
-from src.models.saa import (
-    PavimentoCatalogo,
-    Restricao,
-    RestricaoCatalogo,
-    UnidadeCatalogo,
-)
+from src.models.saa import PavimentoCatalogo, RestricaoPadrao, UnidadeCatalogo
 
 # Importado pelo módulo, não pelo pacote: `from src.repositories import ...`
 # reentraria em __init__.py, que ainda está sendo inicializado.
@@ -105,149 +100,114 @@ class CatalogoRepository:
     # -- Pavimentos --------------------------------------------------------
 
     async def listar_pavimentos(self) -> list[PavimentoCatalogo]:
+        """
+        Pavimentos agrupados por andar — pavimento 1 e todos os seus blocos,
+        depois pavimento 2 e os seus, e assim por diante. Nunca alfabético:
+        ordenar por `bloco` (texto) colocaria "Bloco Anexo" antes de "Bloco D",
+        porque 'A' vem antes de 'D' no alfabeto — sem relação nenhuma com a
+        disposição física do prédio.
+
+        `id` desempata dentro do mesmo andar, preservando a ordem em que os
+        blocos daquele andar foram informados (`dados_referencia.PAVIMENTOS`).
+        """
         resultado = await self.sessao.execute(
             select(PavimentoCatalogo).order_by(
-                PavimentoCatalogo.bloco, PavimentoCatalogo.id
+                PavimentoCatalogo.andar, PavimentoCatalogo.id
             )
         )
         return list(resultado.scalars())
 
-    #: Campos de sala que o gestor edita no panorama padrão.
-    CAMPOS_SALA = ("padrao_1est", "padrao_2est", "esp_1est", "esp_2est", "fechada")
+    # -- Regras padrão de restrição (obrigatoriedade/preferência) ----------
+    #
+    # Vivem no catálogo global, por Unidade_Funcional + pavimento. São a
+    # pré-configuração aplicada a cada NOVO cenário (requisito 4): o gestor as
+    # edita aqui sem depender de reimportar grades, e editar/remover uma regra
+    # daqui não altera cenários já criados — cada cenário guarda sua própria
+    # cópia das restrições no momento em que foi criado.
 
-    async def editar_pavimento_padrao(
-        self, pavimento_id: int, contagens: dict[str, int]
-    ) -> PavimentoCatalogo | None:
-        """
-        Edita as contagens de salas de um pavimento do catálogo (padrão global).
-
-        Só mexe nas contagens — adicionar ou remover pavimentos está fora de
-        escopo, o prédio é fixo. Vale só para cenários futuros.
-        """
-        pavimento = await self.sessao.get(PavimentoCatalogo, pavimento_id)
-        if pavimento is None:
-            return None
-
-        desconhecidos = set(contagens) - set(self.CAMPOS_SALA)
-        if desconhecidos:
-            raise ValueError(
-                f"campos desconhecidos: {sorted(desconhecidos)}. "
-                f"Esperado: {list(self.CAMPOS_SALA)}"
-            )
-        for campo, valor in contagens.items():
-            quantidade = int(valor)
-            if quantidade < 0:
-                raise ValueError(f"{campo} não pode ser negativo")
-            setattr(pavimento, campo, quantidade)
-
-        await self.sessao.flush()
-        return pavimento
-
-    # -- Restrições padrão -------------------------------------------------
-
-    async def listar_restricoes_padrao(self) -> list[RestricaoCatalogo]:
+    async def listar_restricoes_padrao(self) -> list[RestricaoPadrao]:
         resultado = await self.sessao.execute(
-            select(RestricaoCatalogo).order_by(RestricaoCatalogo.unidade_nome)
+            select(RestricaoPadrao).order_by(
+                RestricaoPadrao.nome_unidade, RestricaoPadrao.pavimento_catalogo_id
+            )
         )
         return list(resultado.scalars())
 
     async def definir_restricao_padrao(
-        self, unidade_nome: str, pavimento_catalogo_id: int, tipo: str
-    ) -> RestricaoCatalogo:
+        self, nome_unidade: str, pavimento_catalogo_id: int, tipo: str
+    ) -> RestricaoPadrao:
         """
-        Cria ou substitui uma restrição padrão.
+        Cria ou substitui a regra padrão de uma unidade.
 
-        Uma clínica só pode ter uma obrigatoriedade padrão (ela fica num
-        pavimento só na semana). Definir uma nova substitui a anterior.
+        Só pode existir uma obrigatoriedade padrão por unidade — igual à regra
+        de cenário: uma unidade fica num pavimento só a semana inteira.
         """
         if tipo not in (OBRIGATORIO, PREFERENCIAL):
             raise ValueError(
                 f"tipo inválido: {tipo!r}. Esperado {OBRIGATORIO!r} ou {PREFERENCIAL!r}"
             )
+        chave = normalizar(nome_unidade)
+        if not chave:
+            raise ValueError("nome da unidade não pode ser vazio")
+
         pavimento = await self.sessao.get(PavimentoCatalogo, pavimento_catalogo_id)
         if pavimento is None:
             raise ValueError(f"pavimento {pavimento_catalogo_id} não existe no catálogo")
 
-        chave = normalizar(unidade_nome)
-
         if tipo == OBRIGATORIO:
-            for antiga in await self.listar_restricoes_padrao():
-                if antiga.unidade_normalizada == chave and antiga.tipo == OBRIGATORIO:
-                    await self.sessao.delete(antiga)
+            existentes = await self.sessao.execute(
+                select(RestricaoPadrao).where(
+                    RestricaoPadrao.unidade_normalizada == chave,
+                    RestricaoPadrao.tipo == OBRIGATORIO,
+                )
+            )
+            for antiga in existentes.scalars():
+                await self.sessao.delete(antiga)
+            await self.sessao.flush()
 
         existente = await self.sessao.execute(
-            select(RestricaoCatalogo).where(
-                RestricaoCatalogo.unidade_normalizada == chave,
-                RestricaoCatalogo.pavimento_catalogo_id == pavimento_catalogo_id,
-                RestricaoCatalogo.tipo == tipo,
+            select(RestricaoPadrao).where(
+                RestricaoPadrao.unidade_normalizada == chave,
+                RestricaoPadrao.pavimento_catalogo_id == pavimento_catalogo_id,
+                RestricaoPadrao.tipo == tipo,
             )
         )
         atual = existente.scalar_one_or_none()
         if atual is not None:
             return atual
 
-        restricao = RestricaoCatalogo(
-            unidade_nome=unidade_nome.strip(),
+        regra = RestricaoPadrao(
+            nome_unidade=nome_unidade.strip(),
             unidade_normalizada=chave,
             pavimento_catalogo_id=pavimento_catalogo_id,
             tipo=tipo,
         )
-        self.sessao.add(restricao)
+        self.sessao.add(regra)
         await self.sessao.flush()
         logger.info(
-            "restrição padrão: %s %s no pavimento %d",
-            unidade_nome,
+            "regra padrão: %s → %s — %s (%s)",
+            nome_unidade,
+            pavimento.bloco,
+            pavimento.nome,
             tipo,
-            pavimento_catalogo_id,
         )
-        return restricao
+        return regra
 
-    async def remover_restricao_padrao(self, restricao_id: int) -> bool:
-        restricao = await self.sessao.get(RestricaoCatalogo, restricao_id)
-        if restricao is None:
+    async def remover_restricao_padrao(self, restricao_padrao_id: int) -> bool:
+        regra = await self.sessao.get(RestricaoPadrao, restricao_padrao_id)
+        if regra is None:
             return False
-        await self.sessao.delete(restricao)
+        await self.sessao.delete(regra)
         await self.sessao.flush()
         return True
 
-    async def semear_restricoes_no_cenario(self, cenario) -> int:
-        """
-        Copia as restrições padrão para um cenário recém-criado.
-
-        Casa cada padrão com a cópia do cenário: a clínica pela forma
-        normalizada do nome (só as que participam) e o pavimento pelo bloco/nome.
-        Padrões sem alvo — clínica ausente/não participante ou pavimento
-        removido — são pulados.
-        """
-        padroes = await self.listar_restricoes_padrao()
-        if not padroes:
-            return 0
-
-        unidades = {
-            normalizar(u.unidade_nome): u for u in cenario.unidades if u.participa
-        }
-        pavimentos = {(p.bloco, p.nome): p for p in cenario.pavimentos}
-
-        criadas = 0
-        for padrao in padroes:
-            unidade = unidades.get(padrao.unidade_normalizada)
-            pavimento = pavimentos.get((padrao.pavimento.bloco, padrao.pavimento.nome))
-            if unidade is None or pavimento is None:
-                continue
-            restricao = Restricao(
-                alocacao_id=cenario.id,
-                alocacao_unidade_id=unidade.id,
-                pavimento_id=pavimento.id,
-                tipo=padrao.tipo,
-            )
-            self.sessao.add(restricao)
-            cenario.restricoes.append(restricao)
-            criadas += 1
-
-        if criadas:
-            await self.sessao.flush()
-            logger.info("cenário %d herdou %d restrições padrão", cenario.id, criadas)
-        return criadas
+    async def restricoes_padrao_por_unidade(self) -> dict[str, list[RestricaoPadrao]]:
+        """Regras padrão agrupadas por unidade normalizada — usado ao criar um cenário."""
+        regras = await self.listar_restricoes_padrao()
+        agrupado: dict[str, list[RestricaoPadrao]] = {}
+        for regra in regras:
+            agrupado.setdefault(regra.unidade_normalizada, []).append(regra)
+        return agrupado
 
     # -- Semeadura da referência -------------------------------------------
 
@@ -267,11 +227,12 @@ class CatalogoRepository:
     async def _semear_pavimentos(self) -> int:
         if await self.listar_pavimentos():
             return 0
-        for bloco, nome, p1, p2, e1, e2, fec in dados_referencia.PAVIMENTOS:
+        for bloco, nome, andar, p1, p2, e1, e2, fec in dados_referencia.PAVIMENTOS:
             self.sessao.add(
                 PavimentoCatalogo(
                     bloco=bloco,
                     nome=nome,
+                    andar=andar,
                     padrao_1est=p1,
                     padrao_2est=p2,
                     esp_1est=e1,

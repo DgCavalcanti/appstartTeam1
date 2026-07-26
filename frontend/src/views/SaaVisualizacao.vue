@@ -90,31 +90,67 @@
       </div>
     </section>
 
-    <!-- Ocupação por pavimento -->
+    <!-- Ocupação por pavimento — visão principal: quais unidades funcionais
+         estão em cada pavimento, com ocupação, capacidade, salas, demanda não
+         alocada e alertas. -->
     <section class="bg-white rounded-lg shadow-paper p-6">
-      <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-4">Ocupação por pavimento</h3>
-      <div class="space-y-4">
-        <div v-for="p in painel.por_pavimento" :key="p.id" class="grid grid-cols-1 md:grid-cols-[16rem_1fr] gap-3 md:gap-6 items-center">
-          <div>
-            <p class="text-sm font-medium text-paper-text">{{ p.nome }}</p>
-            <p class="text-xs text-gray-500">
-              {{ p.salas_no_pico }}/{{ p.salas_abertas }} salas no pico ·
-              {{ p.clinicas.length }} clínica(s)
-            </p>
+      <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-1">Pavimentos</h3>
+      <p class="text-xs text-gray-500 mb-4">
+        Visão principal — quais unidades funcionais estão alocadas em cada
+        pavimento, e onde há sobra ou risco.
+      </p>
+      <div class="space-y-3">
+        <div
+          v-for="p in painel.por_pavimento"
+          :key="p.id"
+          class="border rounded-lg p-4"
+          :class="p.alertas.length ? 'border-paper-danger/30 bg-paper-danger/5' : 'border-gray-200'"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium text-paper-text">{{ p.nome }}</p>
+              <p class="text-xs text-gray-500 mt-0.5">
+                {{ p.salas_no_pico }}/{{ p.salas_abertas }} salas no pico ·
+                {{ p.capacidade }} estações de capacidade ·
+                {{ p.clinicas.length }} unidade(s) funcional(is)
+              </p>
+            </div>
+            <div class="flex items-center gap-3 shrink-0">
+              <MedidorOcupacao :pct="p.ocupacao_pico_pct" :mostrar-valor="false" class="w-32" />
+              <span class="text-sm tabular-nums font-medium text-paper-text w-12 text-right">{{ p.ocupacao_pico_pct }}%</span>
+            </div>
           </div>
-          <div class="flex items-center gap-3">
-            <MedidorOcupacao :pct="p.ocupacao_pico_pct" :mostrar-valor="false" class="flex-1" />
-            <span class="text-sm tabular-nums font-medium text-paper-text w-12 text-right">{{ p.ocupacao_pico_pct }}%</span>
+
+          <p v-if="p.total_nao_alocado" class="text-xs text-paper-danger font-medium mt-2">
+            {{ p.total_nao_alocado }} grade(s) sem sala neste pavimento
+          </p>
+
+          <div v-if="p.alertas.length" class="mt-2 space-y-1">
+            <p
+              v-for="(a, i) in p.alertas"
+              :key="i"
+              class="text-xs text-paper-danger bg-white/60 border border-paper-danger/20 rounded px-2 py-1"
+            >⚠ {{ a.mensagem }}</p>
           </div>
+
+          <div v-if="p.clinicas.length" class="mt-3 flex flex-wrap gap-1.5">
+            <span
+              v-for="nome in p.clinicas"
+              :key="nome"
+              class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
+            >{{ nome }}</span>
+          </div>
+          <p v-else class="text-xs text-gray-400 mt-2">nenhuma unidade alocada aqui</p>
         </div>
       </div>
     </section>
 
-    <!-- Clínica → pavimento -->
+    <!-- Clínica → pavimento (visão secundária, ordem alfabética, com busca/filtro) -->
     <section class="bg-white rounded-lg shadow-paper p-6">
-      <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-4">Distribuição das clínicas</h3>
+      <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-1">Unidades funcionais</h3>
+      <p class="text-xs text-gray-500 mb-3">Visão secundária, em ordem alfabética.</p>
 
-      <FiltroAlocacao :linhas="clinicas" v-slot="{ filtradas }">
+      <FiltroAlocacao :linhas="clinicasEmOrdemAlfabetica" v-slot="{ filtradas }">
         <div class="overflow-x-auto max-h-[32rem] overflow-y-auto">
           <table class="w-full text-sm border-collapse">
             <thead class="sticky top-0 bg-white">
@@ -166,21 +202,8 @@ import api from '../services/api';
 const route = useRoute();
 const cenarioId = computed(() => Number(route.params.id));
 
-interface ClinicaVis {
-  nome: string;
-  bloco: string | null;
-  pavimento: string | null;
-  alocado: number[];
-  nao_alocado: number[];
-  total_alocado: number;
-  total_nao_alocado: number;
-}
-
 const painel = ref<any>(null);
 const erroFatal = ref('');
-
-/** As linhas da distribuição, tipadas — o painel em si é solto (any). */
-const clinicas = computed<ClinicaVis[]>(() => painel.value?.por_clinica ?? []);
 
 const ABREV: Record<string, string> = {
   segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui', sexta: 'Sex',
@@ -196,6 +219,18 @@ const ALTURA_GRAFICO = 128;
 /** Barras dimensionadas contra o pico de demanda entre todos os turnos. */
 const picoDemanda = computed(() =>
   Math.max(1, ...(painel.value?.por_turno ?? []).map((t: any) => t.demanda))
+);
+
+/**
+ * Visão secundária: mesma lista de `por_clinica`, mas em ordem alfabética.
+ * A ordem que a API devolve (sobra primeiro) é a que importa para o resumo;
+ * esta tela é só para o gestor localizar uma unidade pelo nome. `FiltroAlocacao`
+ * ainda deixa buscar por nome ou filtrar por bloco/pavimento em cima dela.
+ */
+const clinicasEmOrdemAlfabetica = computed(() =>
+  [...(painel.value?.por_clinica ?? [])].sort((a: any, b: any) =>
+    a.nome.localeCompare(b.nome, 'pt-BR')
+  )
 );
 
 /**

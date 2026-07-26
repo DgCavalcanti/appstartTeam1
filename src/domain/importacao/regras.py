@@ -181,9 +181,10 @@ class GradeSlot:
     É o grão auditável da demanda — permite rastrear de onde veio cada número e
     reprocessar sem reimportar. Um slot ocupa uma estação.
 
-    `revisar` marca os casos em que o mesmo profissional atende duas clínicas no
-    mesmo turno (~7% dos casos no arquivo real). O slot conta em cada clínica, e
-    a etapa 2 destaca esses registros para o gestor conferir.
+    `revisar` marca os casos em que o mesmo profissional aparece em duas ou mais
+    clínicas no mesmo turno (~7% dos casos no arquivo real). Ele NÃO conta em
+    mais de uma: o passo 8 mantém um único slot, numa unidade só escolhida de
+    forma determinística, e destaca o caso para o gestor conferir na etapa 2.
     """
 
     profissional: str
@@ -191,10 +192,17 @@ class GradeSlot:
     dia: str
     periodo: str
     revisar: bool = False
+    #: Dado auxiliar de auditoria — NUNCA entra na chave de deduplicação nem na
+    #: demanda agregada. Unidade_Funcional é quem decide pavimento; Especialidade
+    #: só acompanha o slot para o gestor conferir/rastrear a origem do registro.
+    #: Quando a planilha traz mais de uma especialidade para o mesmo slot (várias
+    #: condições de atendimento colapsadas no passo 8), guarda todas, unidas por
+    #: "; ", em ordem alfabética — determinístico e não perde informação.
+    especialidade: str | None = None
 
     @property
     def chave(self) -> tuple[str, str, str, str]:
-        """Chave de deduplicação do passo 8."""
+        """Chave de deduplicação do passo 8. Especialidade não participa dela."""
         return (self.profissional, self.unidade, self.dia, self.periodo)
 
 
@@ -225,14 +233,24 @@ def deduplicar_em_slots(df: pd.DataFrame) -> tuple[GradeSlot, ...]:
     Várias condições de atendimento do mesmo profissional, na mesma unidade e no
     mesmo turno, viram um único slot: ele ocupa uma sala só.
 
-    Quando o mesmo profissional aparece em DUAS unidades no mesmo dia/turno, o
-    slot é mantido em cada unidade — porque as duas clínicas de fato reservam
-    espaço — e ambos ficam marcados para revisão na etapa 2.
+    Quando o mesmo profissional aparece em DUAS OU MAIS unidades no mesmo
+    dia/turno, ele não pode contar em mais de uma — senão a mesma grade
+    infla a demanda de duas clínicas ao mesmo tempo. Mantemos um único slot,
+    na unidade escolhida de forma determinística (a de menor forma normalizada,
+    para a mesma planilha sempre produzir o mesmo resultado), e o marcamos para
+    revisão: é a etapa 2 quem avisa o gestor do caso ambíguo.
+
+    A coluna Especialidade, quando presente, é carregada junto de cada slot como
+    dado auxiliar (auditoria) — nunca entra na chave de deduplicação nem decide
+    unidade ou pavimento algum.
     """
     if df.empty:
         return ()
 
+    tem_especialidade = "Especialidade" in df.columns
+
     chaves: set[tuple[str, str, str, str]] = set()
+    especialidades: dict[tuple[str, str, str, str], set[str]] = {}
     for _, linha in df.iterrows():
         dia = canonizar_dia(linha["Dia_da_Semana"])
         periodo = canonizar_periodo(linha["Turno"])
@@ -241,39 +259,66 @@ def deduplicar_em_slots(df: pd.DataFrame) -> tuple[GradeSlot, ...]:
             continue
         profissional = str(linha["Profissional_Grade"]).strip()
         unidade = str(linha["Unidade_Funcional"]).strip()
-        chaves.add((profissional, unidade, dia, periodo))
+        chave = (profissional, unidade, dia, periodo)
+        chaves.add(chave)
 
-    # Profissional que ocupa duas unidades no mesmo dia/turno → revisão.
+        if tem_especialidade:
+            valor = linha["Especialidade"]
+            texto = "" if valor is None or (isinstance(valor, float) and pd.isna(valor)) else str(valor).strip()
+            if texto:
+                especialidades.setdefault(chave, set()).add(texto)
+
+    # Profissional que ocupa duas ou mais unidades no mesmo dia/turno.
     unidades_por_profissional_turno: dict[tuple[str, str, str], set[str]] = {}
     for profissional, unidade, dia, periodo in chaves:
         unidades_por_profissional_turno.setdefault(
             (profissional, dia, periodo), set()
         ).add(unidade)
 
-    slots = tuple(
-        sorted(
-            (
-                GradeSlot(
-                    profissional=profissional,
-                    unidade=unidade,
-                    dia=dia,
-                    periodo=periodo,
-                    revisar=len(
-                        unidades_por_profissional_turno[(profissional, dia, periodo)]
-                    )
-                    > 1,
-                )
-                for profissional, unidade, dia, periodo in chaves
-            ),
-            key=lambda s: (s.unidade, s.dia, s.periodo, s.profissional),
+    # Quando há conflito, escolhe UMA unidade só — a de menor forma
+    # normalizada — para o slot não contar duas vezes na demanda agregada.
+    unidade_escolhida: dict[tuple[str, str, str], str] = {}
+    turnos_em_conflito: set[tuple[str, str, str]] = set()
+    for turno_chave, unidades in unidades_por_profissional_turno.items():
+        if len(unidades) > 1:
+            turnos_em_conflito.add(turno_chave)
+            unidade_escolhida[turno_chave] = min(unidades, key=normalizar)
+        else:
+            unidade_escolhida[turno_chave] = next(iter(unidades))
+
+    chaves_mantidas = {
+        chave
+        for chave in chaves
+        if chave[1] == unidade_escolhida[(chave[0], chave[2], chave[3])]
+    }
+
+    brutos = []
+    for chave in chaves_mantidas:
+        profissional, unidade, dia, periodo = chave
+        brutos.append(
+            GradeSlot(
+                profissional=profissional,
+                unidade=unidade,
+                dia=dia,
+                periodo=periodo,
+                revisar=(profissional, dia, periodo) in turnos_em_conflito,
+                especialidade=(
+                    "; ".join(sorted(especialidades[chave]))
+                    if chave in especialidades
+                    else None
+                ),
+            )
         )
+
+    slots = tuple(
+        sorted(brutos, key=lambda s: (s.unidade, s.dia, s.periodo, s.profissional))
     )
 
     marcados = sum(1 for s in slots if s.revisar)
     if marcados:
         logger.info(
-            "%d slots marcados para revisão (profissional em duas clínicas no "
-            "mesmo turno)",
+            "%d slots marcados para revisão (profissional em duas ou mais "
+            "clínicas no mesmo turno; mantido em apenas uma)",
             marcados,
         )
     return slots

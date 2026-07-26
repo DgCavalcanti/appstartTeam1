@@ -187,7 +187,12 @@ class TestLeitura:
 
 class TestDescarteDeColunas:
 
-    def test_remove_hora_vagas_e_especialidade(self):
+    def test_remove_hora_vagas_mas_preserva_especialidade(self):
+        """
+        Especialidade NÃO é descartada aqui: ela é dado auxiliar de auditoria,
+        preservada em `grade_slot` (passo 8). Quem decide pavimento e demanda é
+        sempre Unidade_Funcional — Especialidade só acompanha para conferência.
+        """
         df = frame(
             linha(
                 Hora_Inicio="1970-01-01 07:00:00.000",
@@ -197,8 +202,9 @@ class TestDescarteDeColunas:
             )
         )
         resultado = descartar_colunas_irrelevantes(df)
-        for coluna in ("Hora_Inicio", "Quantidade_Vagas", "Especialidade", "Grade"):
+        for coluna in ("Hora_Inicio", "Quantidade_Vagas", "Grade"):
             assert coluna not in resultado.columns
+        assert "Especialidade" in resultado.columns
         assert "Unidade_Funcional" in resultado.columns
 
     def test_nao_falha_quando_a_coluna_nao_existe(self):
@@ -293,18 +299,41 @@ class TestDeduplicacao:
         )
         assert len(deduplicar_em_slots(df)) == 3
 
-    def test_profissional_em_duas_clinicas_conta_em_cada_uma(self):
-        # Os ~7% de casos do arquivo real: o slot conta nas duas clínicas,
-        # porque ambas de fato reservam espaço, e fica marcado para revisão.
+    def test_profissional_em_duas_clinicas_conta_em_apenas_uma(self):
+        # Os ~7% de casos do arquivo real: o profissional não pode contar nas
+        # duas clínicas ao mesmo tempo — só uma fica com o slot, escolhida de
+        # forma determinística (menor forma normalizada), e vai para revisão.
         df = frame(
             linha(profissional="Dr. A", unidade="CARDIOLOGIA", dia="Segunda", turno="Manhã"),
             linha(profissional="Dr. A", unidade="CLÍNICA MÉDICA", dia="Segunda", turno="Manhã"),
         )
         slots = deduplicar_em_slots(df)
 
-        assert len(slots) == 2
-        assert {s.unidade for s in slots} == {"CARDIOLOGIA", "CLÍNICA MÉDICA"}
-        assert all(s.revisar for s in slots), "ambos deveriam ir para revisão"
+        assert len(slots) == 1, "não pode contar em mais de uma unidade"
+        assert slots[0].unidade == "CARDIOLOGIA", "'cardiologia' < 'clinica medica' normalizado"
+        assert slots[0].revisar is True
+
+    def test_escolha_e_deterministica_independente_da_ordem_das_linhas(self):
+        # A mesma ambiguidade, com as linhas na ordem inversa, tem que dar o
+        # mesmo resultado — senão reimportar o mesmo arquivo mudaria a demanda.
+        df = frame(
+            linha(profissional="Dr. A", unidade="CLÍNICA MÉDICA", dia="Segunda", turno="Manhã"),
+            linha(profissional="Dr. A", unidade="CARDIOLOGIA", dia="Segunda", turno="Manhã"),
+        )
+        slots = deduplicar_em_slots(df)
+        assert len(slots) == 1
+        assert slots[0].unidade == "CARDIOLOGIA"
+
+    def test_profissional_em_tres_clinicas_conta_em_apenas_uma(self):
+        df = frame(
+            linha(profissional="Dr. A", unidade="ORTOPEDIA", dia="Segunda", turno="Manhã"),
+            linha(profissional="Dr. A", unidade="CARDIOLOGIA", dia="Segunda", turno="Manhã"),
+            linha(profissional="Dr. A", unidade="CLÍNICA MÉDICA", dia="Segunda", turno="Manhã"),
+        )
+        slots = deduplicar_em_slots(df)
+        assert len(slots) == 1
+        assert slots[0].unidade == "CARDIOLOGIA"
+        assert slots[0].revisar is True
 
     def test_mesma_clinica_em_turnos_diferentes_nao_vai_para_revisao(self):
         df = frame(
@@ -324,6 +353,77 @@ class TestDeduplicacao:
             linha(profissional="Dr. A", unidade="AAA"),
         )
         assert deduplicar_em_slots(df) == deduplicar_em_slots(df)
+
+
+class TestEspecialidadeComoAuditoria:
+    """
+    Especialidade é dado auxiliar de auditoria: acompanha o slot, mas nunca
+    decide unidade, dedup ou demanda agregada — quem decide é sempre
+    Unidade_Funcional.
+    """
+
+    def test_especialidade_e_carregada_no_slot(self):
+        df = frame(linha(profissional="Dr. A", Especialidade="CARDIOLOGIA"))
+        slots = deduplicar_em_slots(df)
+        assert len(slots) == 1
+        assert slots[0].especialidade == "CARDIOLOGIA"
+
+    def test_ausencia_da_coluna_nao_quebra(self):
+        # A coluna é opcional: nem toda exportação a traz.
+        df = frame(linha(profissional="Dr. A"))
+        slots = deduplicar_em_slots(df)
+        assert slots[0].especialidade is None
+
+    def test_nao_entra_na_chave_de_deduplicacao(self):
+        # Duas linhas do mesmo profissional/unidade/dia/turno, mas com
+        # especialidades diferentes, ainda colapsam num slot só.
+        df = frame(
+            linha(profissional="Dr. A", condicao="RETORNO", Especialidade="CARDIOLOGIA"),
+            linha(profissional="Dr. A", condicao="PRIMEIRA CONSULTA", Especialidade="CLINICA GERAL"),
+        )
+        slots = deduplicar_em_slots(df)
+        assert len(slots) == 1
+        # Ambas as especialidades ficam registradas, em ordem alfabética —
+        # nenhuma informação se perde, mas nenhuma decide o slot.
+        assert slots[0].especialidade == "CARDIOLOGIA; CLINICA GERAL"
+
+    def test_duas_unidades_diferentes_nao_compartilham_especialidade(self):
+        # Confirma que Especialidade é agregada por slot (chave completa), não
+        # globalmente — profissionais diferentes, cada unidade mantém a sua.
+        df = frame(
+            linha(profissional="Dr. A", unidade="CARDIOLOGIA", Especialidade="CARDIOLOGIA"),
+            linha(profissional="Dr. B", unidade="CLÍNICA MÉDICA", Especialidade="CLINICA GERAL"),
+        )
+        slots = {s.unidade: s for s in deduplicar_em_slots(df)}
+        assert slots["CARDIOLOGIA"].especialidade == "CARDIOLOGIA"
+        assert slots["CLÍNICA MÉDICA"].especialidade == "CLINICA GERAL"
+
+    def test_unidade_perdedora_no_conflito_perde_a_especialidade_junto(self):
+        # O mesmo profissional em duas unidades no mesmo turno: só a unidade
+        # escolhida sobrevive, e é a especialidade dela que fica — a da unidade
+        # descartada some junto, porque o slot inteiro não existe mais ali.
+        df = frame(
+            linha(profissional="Dr. A", unidade="CARDIOLOGIA", dia="Segunda", turno="Manhã", Especialidade="CARDIOLOGIA"),
+            linha(profissional="Dr. A", unidade="CLÍNICA MÉDICA", dia="Segunda", turno="Manhã", Especialidade="CLINICA GERAL"),
+        )
+        slots = deduplicar_em_slots(df)
+        assert len(slots) == 1
+        assert slots[0].unidade == "CARDIOLOGIA"
+        assert slots[0].especialidade == "CARDIOLOGIA"
+
+    def test_especialidade_nao_afeta_demanda_agregada(self):
+        # Duas linhas de profissionais diferentes, mesma unidade/dia/turno,
+        # com especialidades diferentes: a demanda soma 2, como se
+        # Especialidade não existisse.
+        df = frame(
+            linha(profissional="Dr. A", unidade="CARDIOLOGIA", Especialidade="A"),
+            linha(profissional="Dr. B", unidade="CARDIOLOGIA", Especialidade="B"),
+        )
+        slots = deduplicar_em_slots(df)
+        demandas = derivar_demanda(slots)
+        assert len(demandas) == 1
+        assert demandas[0].quantidade == 2
+        assert demandas[0].unidade == "CARDIOLOGIA"
 
 
 # ---------------------------------------------------------------------------

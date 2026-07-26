@@ -37,11 +37,17 @@ class PanoramaService:
         self.processo = ProcessoService(sessao)
 
     def ler(self, cenario: Alocacao) -> list[dict]:
+        """
+        A planilha da etapa 3 — já vem na ordem de `cenario.pavimentos`
+        (pavimento 1 e seus blocos, depois pavimento 2 e os seus, etc.; nunca
+        alfabética por nome de bloco).
+        """
         return [
             {
                 "id": p.id,
                 "bloco": p.bloco,
                 "nome": p.nome,
+                "andar": p.andar,
                 "nome_completo": p.nome_completo,
                 **{campo: getattr(p, campo) for campo in CAMPOS_DE_SALA},
                 "capacidade": p.capacidade,
