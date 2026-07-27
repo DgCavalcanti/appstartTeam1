@@ -523,6 +523,43 @@ class TestCatalogo:
         assert padrao["ENFERMAGEM"] is True
         assert padrao["CLÍNICA INVENTADA"] is True
 
+    # -- Panorama padrão (edição das contagens do catálogo) ----------------
+
+    def test_editar_pavimento_padrao_recalcula_capacidade(self):
+        async def rodar(sessao):
+            catalogo = CatalogoRepository(sessao)
+            await catalogo.semear_referencia()
+            await sessao.flush()
+            alvo = next(p for p in await catalogo.listar_pavimentos() if p.capacidade > 0)
+            antes = alvo.capacidade
+            atualizado = await catalogo.editar_pavimento_padrao(
+                alvo.id, {"padrao_1est": alvo.padrao_1est + 4}
+            )
+            return antes, atualizado.capacidade
+
+        antes, depois = executar(rodar)
+        assert depois == antes + 4
+
+    def test_editar_pavimento_padrao_recusa_campo_desconhecido(self):
+        async def rodar(sessao):
+            catalogo = CatalogoRepository(sessao)
+            await catalogo.semear_referencia()
+            await sessao.flush()
+            alvo = (await catalogo.listar_pavimentos())[0]
+            with pytest.raises(ValueError, match="campos desconhecidos"):
+                await catalogo.editar_pavimento_padrao(alvo.id, {"capacidade": 99})
+
+        executar(rodar)
+
+    def test_editar_pavimento_padrao_inexistente(self):
+        async def rodar(sessao):
+            catalogo = CatalogoRepository(sessao)
+            await catalogo.semear_referencia()
+            await sessao.flush()
+            return await catalogo.editar_pavimento_padrao(9999, {"padrao_1est": 1})
+
+        assert executar(rodar) is None
+
     # -- Regras padrão (obrigatoriedade/preferência por unidade+pavimento) --
 
     def test_definir_e_listar_regra_padrao(self):

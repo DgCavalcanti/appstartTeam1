@@ -53,6 +53,22 @@ EXTENSOES_ACEITAS = {".csv", ".xlsx", ".xls"}
 # ---------------------------------------------------------------------------
 
 
+def _pavimento_catalogo_dict(p) -> dict:
+    return {
+        "id": p.id,
+        "bloco": p.bloco,
+        "nome": p.nome,
+        "andar": p.andar,
+        "nome_completo": f"{p.bloco} — {p.nome}",
+        "padrao_1est": p.padrao_1est,
+        "padrao_2est": p.padrao_2est,
+        "esp_1est": p.esp_1est,
+        "esp_2est": p.esp_2est,
+        "fechada": p.fechada,
+        "capacidade": p.capacidade,
+    }
+
+
 @router.get(
     "/padroes",
     summary="Estrutura do prédio e malha de turnos",
@@ -68,24 +84,50 @@ async def obter_padroes(sessao: AsyncSession = Depends(get_app_db_session)):
 
     pavimentos = await catalogo.listar_pavimentos()
     return {
-        "pavimentos": [
-            {
-                "id": p.id,
-                "bloco": p.bloco,
-                "nome": p.nome,
-                "andar": p.andar,
-                "nome_completo": f"{p.bloco} — {p.nome}",
-                "padrao_1est": p.padrao_1est,
-                "padrao_2est": p.padrao_2est,
-                "esp_1est": p.esp_1est,
-                "esp_2est": p.esp_2est,
-                "fechada": p.fechada,
-                "capacidade": p.capacidade,
-            }
-            for p in pavimentos
-        ],
+        "pavimentos": [_pavimento_catalogo_dict(p) for p in pavimentos],
+        "capacidade_total": sum(p.capacidade for p in pavimentos),
         "turnos": [{"dia": d, "periodo": t} for d, t in TURNOS],
         "unidades_excluidas": sorted(await catalogo.unidades_excluidas()),
+    }
+
+
+class EdicaoPavimentoPadrao(BaseModel):
+    pavimento_id: int
+    contagens: dict[str, int]
+
+
+@router.put(
+    "/padroes",
+    summary="Editar o panorama de salas padrão (catálogo) em lote",
+    description=(
+        "Ajusta as contagens de salas dos pavimentos do catálogo. Vale só para "
+        "cenários futuros; os já criados guardam a própria cópia."
+    ),
+)
+async def editar_padroes(
+    edicoes: list[EdicaoPavimentoPadrao],
+    sessao: AsyncSession = Depends(get_app_db_session),
+):
+    catalogo = CatalogoRepository(sessao)
+    await catalogo.semear_referencia()
+    try:
+        for edicao in edicoes:
+            alterado = await catalogo.editar_pavimento_padrao(
+                edicao.pavimento_id, edicao.contagens
+            )
+            if alterado is None:
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND,
+                    f"pavimento {edicao.pavimento_id} não existe no catálogo",
+                )
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
+
+    await sessao.commit()
+    pavimentos = await catalogo.listar_pavimentos()
+    return {
+        "pavimentos": [_pavimento_catalogo_dict(p) for p in pavimentos],
+        "capacidade_total": sum(p.capacidade for p in pavimentos),
     }
 
 
@@ -130,8 +172,25 @@ def _serializar_regra_padrao(r) -> dict:
 )
 async def listar_regras_padrao(sessao: AsyncSession = Depends(get_app_db_session)):
     catalogo = CatalogoRepository(sessao)
+    if any((await catalogo.semear_referencia()).values()):
+        await sessao.commit()
+
     regras = await catalogo.listar_restricoes_padrao()
-    return {"regras": [_serializar_regra_padrao(r) for r in regras]}
+    unidades = await catalogo.listar_unidades()
+    # Só pavimentos com capacidade servem de destino de uma regra.
+    pavimentos = [p for p in await catalogo.listar_pavimentos() if p.capacidade > 0]
+
+    return {
+        "regras": [_serializar_regra_padrao(r) for r in regras],
+        # As 62 unidades do catálogo — o gestor pode restringir qualquer uma; só
+        # as participantes de um cenário herdam a regra na prática.
+        "unidades": [
+            {"nome": u.nome, "participa_default": u.participa_default} for u in unidades
+        ],
+        "pavimentos": [
+            {"id": p.id, "nome_completo": f"{p.bloco} — {p.nome}"} for p in pavimentos
+        ],
+    }
 
 
 @router.post(

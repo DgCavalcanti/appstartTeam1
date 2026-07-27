@@ -45,7 +45,7 @@
       <div class="flex flex-wrap items-end gap-3 mb-5">
         <div class="flex-1 min-w-[14rem]">
           <label class="form-label">Clínica</label>
-          <select v-model="nova.unidade_nome" class="form-control">
+          <select v-model="nova.unidade" class="form-control">
             <option value="">— selecione —</option>
             <option v-for="u in unidades" :key="u.nome" :value="u.nome">
               {{ u.nome }}{{ u.participa_default ? '' : ' (não participa por padrão)' }}
@@ -68,7 +68,7 @@
         </div>
         <button
           class="px-4 py-2 rounded bg-paper-primary text-white text-sm hover:bg-paper-primary-hover disabled:bg-paper-disabled disabled:text-gray-500"
-          :disabled="!nova.unidade_nome || !nova.pavimento_catalogo_id"
+          :disabled="!nova.unidade || !nova.pavimento_catalogo_id"
           @click="adicionarRestricao"
         >Adicionar</button>
       </div>
@@ -125,7 +125,7 @@ interface Pavimento {
 }
 interface Unidade { nome: string; participa_default: boolean }
 interface PavimentoDestino { id: number; nome_completo: string }
-interface Restricao { id: number; unidade: string; pavimento_id: number; pavimento: string; tipo: string }
+interface Restricao { id: number; unidade: string; pavimento_catalogo_id: number; pavimento: string; tipo: string }
 
 const pavimentos = ref<Pavimento[]>([]);
 const unidades = ref<Unidade[]>([]);
@@ -133,7 +133,7 @@ const pavimentosDestino = ref<PavimentoDestino[]>([]);
 const restricoes = ref<Restricao[]>([]);
 const erro = ref('');
 
-const nova = ref({ unidade_nome: '', pavimento_catalogo_id: 0, tipo: 'obrigatorio' });
+const nova = ref({ unidade: '', pavimento_catalogo_id: 0, tipo: 'obrigatorio' });
 
 const colunasPanorama: Coluna[] = [
   { chave: 'nome_completo', rotulo: 'Pavimento', largura: '18rem' },
@@ -157,11 +157,11 @@ const rodapePanorama = computed(() => ({
 async function carregar() {
   try {
     const [pan, res] = await Promise.all([
-      api.get('/api/padroes/panorama'),
-      api.get('/api/padroes/restricoes'),
+      api.get('/api/cenarios/padroes'),
+      api.get('/api/cenarios/regras-padrao'),
     ]);
     pavimentos.value = pan.data.pavimentos;
-    restricoes.value = res.data.restricoes;
+    restricoes.value = res.data.regras;
     unidades.value = res.data.unidades;
     pavimentosDestino.value = res.data.pavimentos;
   } catch (e: any) {
@@ -181,7 +181,7 @@ async function comErro(acao: () => Promise<void>) {
 
 async function editarPanorama({ linha, chave, valor }: Alteracao) {
   await comErro(async () => {
-    const { data } = await api.put('/api/padroes/panorama', [
+    const { data } = await api.put('/api/cenarios/padroes', [
       { pavimento_id: linha.id, contagens: { [chave]: valor } },
     ]);
     pavimentos.value = data.pavimentos;
@@ -190,16 +190,17 @@ async function editarPanorama({ linha, chave, valor }: Alteracao) {
 
 async function adicionarRestricao() {
   await comErro(async () => {
-    const { data } = await api.post('/api/padroes/restricoes', { ...nova.value });
-    restricoes.value = data.restricoes;
-    nova.value = { unidade_nome: '', pavimento_catalogo_id: 0, tipo: nova.value.tipo };
+    const { data } = await api.post('/api/cenarios/regras-padrao', { ...nova.value });
+    restricoes.value = data.regras;
+    nova.value = { unidade: '', pavimento_catalogo_id: 0, tipo: nova.value.tipo };
   });
 }
 
 async function removerRestricao(r: Restricao) {
   await comErro(async () => {
-    const { data } = await api.delete(`/api/padroes/restricoes/${r.id}`);
-    restricoes.value = data.restricoes;
+    // O DELETE devolve só { removida }; tiramos a regra da lista local.
+    await api.delete(`/api/cenarios/regras-padrao/${r.id}`);
+    restricoes.value = restricoes.value.filter(x => x.id !== r.id);
   });
 }
 

@@ -117,6 +117,38 @@ class CatalogoRepository:
         )
         return list(resultado.scalars())
 
+    #: Campos de sala que o gestor edita no panorama padrão.
+    CAMPOS_SALA = ("padrao_1est", "padrao_2est", "esp_1est", "esp_2est", "fechada")
+
+    async def editar_pavimento_padrao(
+        self, pavimento_id: int, contagens: dict[str, int]
+    ) -> PavimentoCatalogo | None:
+        """
+        Edita as contagens de salas de um pavimento do catálogo (panorama padrão).
+
+        Só mexe nas contagens — adicionar/remover pavimentos está fora de escopo,
+        o prédio é fixo. Vale só para cenários futuros; os já salvos guardam a
+        cópia deles.
+        """
+        pavimento = await self.sessao.get(PavimentoCatalogo, pavimento_id)
+        if pavimento is None:
+            return None
+
+        desconhecidos = set(contagens) - set(self.CAMPOS_SALA)
+        if desconhecidos:
+            raise ValueError(
+                f"campos desconhecidos: {sorted(desconhecidos)}. "
+                f"Esperado: {list(self.CAMPOS_SALA)}"
+            )
+        for campo, valor in contagens.items():
+            quantidade = int(valor)
+            if quantidade < 0:
+                raise ValueError(f"{campo} não pode ser negativo")
+            setattr(pavimento, campo, quantidade)
+
+        await self.sessao.flush()
+        return pavimento
+
     # -- Regras padrão de restrição (obrigatoriedade/preferência) ----------
     #
     # Vivem no catálogo global, por Unidade_Funcional + pavimento. São a
