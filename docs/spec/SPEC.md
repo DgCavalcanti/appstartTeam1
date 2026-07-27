@@ -1,15 +1,16 @@
 # SPEC.md - Contrato de Desenvolvimento (SDD)
 
 ## 1. Visão Geral e Resultados Esperados
-Este documento é a ÚNICA fonte de verdade para a orquestração do desenvolvimento. O objetivo é construir um sistema hospitalar seguro e em conformidade com a LGPD.
+Este documento orienta a evolução do SAA — Sistema de Alocação Ambulatorial. O objetivo é alocar cada clínica (unidade funcional) em um pavimento do HC, para a semana inteira, a partir da grade exportada do AGHU, com uso local por um único gestor.
 
 ### Objetivos de Alto Nível
-* [ ] Ler dados de grades, salas, restrições e alocações a partir de arquivos CSV.
-* [ ] Cruzar grades e salas para exibir a distribuição planejada e a ocupação por turno.
-* [ ] Identificar automaticamente conflitos básicos de alocação.
-* [ ] Permitir ajuste manual assistido via dashboard operacional.
+* [x] Importar e tratar a grade do AGHU, reduzindo-a a contagens por unidade/dia/turno.
+* [x] Alocar automaticamente cada clínica em um pavimento, respeitando a capacidade em estações.
+* [x] Permitir editar grades, panorama de salas e resultado como planilha, e definir obrigatoriedades/preferências.
+* [x] Guardar cada alocação como um cenário autocontido, com histórico e clonagem.
+* [x] Exibir um painel consolidado de visualização, somente leitura.
 
-## 2. Contexto do Projeto (Documentação Imutável)
+## 2. Contexto do Projeto
 As definições detalhadas estão distribuídas nos seguintes documentos:
 - [Visão](01-visao.md)
 - [Requisitos](02-requisitos.md)
@@ -19,54 +20,52 @@ As definições detalhadas estão distribuídas nos seguintes documentos:
 - [Arquitetura](06-arquitetura.md)
 - [Glossário](07-glossario.md)
 
-## 3. Limites de Escopo e Guardrails (Anti-Patterns)
-**A IA DEVE:**
-- Seguir rigorosamente o Modelo de Dados definido em `04-modelo-dados.md`.
-- Implementar testes unitários para cada funcionalidade nova.
-- Utilizar criptografia AES-256 para dados sensíveis.
-- Respeitar o fluxo em camadas unidirecional: Frontend Vue -> Router FastAPI -> Controller -> Provider CSV -> Arquivo CSV
-- Manter a separação estrita entre interface, API, regra de negócio e acesso aos dados.
+A referência de projeto é o documento de arquitetura do SAA (v3), com o motor de alocação co-desenhado e validado sobre os dados reais do HC.
 
-**A IA NÃO DEVE:**
-- Criar dependências externas não documentadas em `06-arquitetura.md`.
-- Implementar exclusão física de registros (usar Soft Delete).
-- Burlar o sistema de RBAC (Role-Based Access Control).
-- Desenvolver alocação automática.
-- Tentar acessar ou modificar diretamente a base de dados do AGHU na fase do MVP.
-- Usar sincronização em tempo real.
+## 3. Limites de Escopo e Guardrails
 
-## 4. Task Breakdown (Plano de Implementação)
-### Fase 1: Dados e Backend (MVP com CSV)
-- [ ] [TASK-001] Implementar leitura inicial de dados por CSV seguindo o padrão do framework.
-- [ ] [TASK-002] Implementar o arquivo `grade_csv_provider.py`.
-- [ ] [TASK-003] Criar `grade_controller.py` e `grade.py` (router).
-- [ ] [TASK-004] Registrar o router de grades no arquivo `main.py`.
-- [ ] [TASK-005] Repetir o padrão de arquitetura para os módulos de salas, restrições e alocações.
-- [ ] [TASK-006] Criar a lógica de conflitos no controller.
-- [ ] [TASK-007] Implementar alertas básicos de conflito na lógica de negócio.
+**A implementação DEVE:**
+- Seguir o Modelo de Dados de `04-modelo-dados.md` (cenário autocontido).
+- Manter as regras de negócio no domínio, em Python puro e testável isoladamente.
+- Respeitar o fluxo em camadas: API → Serviço → Domínio → Repositório.
+- Derivar a capacidade dos pavimentos das contagens de salas, em estações.
+- Implementar testes para cada regra de domínio, serviço ou componente novo.
 
-### Fase 2: Frontend e Visualização
-- [ ] [TASK-008] Criar stores Pinia e telas Vue.
-- [ ] [TASK-009] Criar módulo de visualização das grades.
-- [ ] [TASK-010] Criar módulo de cadastro e visualização das salas.
-- [ ] [TASK-011] Criar tela de cruzamento entre grades e salas para exibir a distribuição atual.
-- [ ] [TASK-012] Criar e testar o dashboard SAA.
+**A implementação NÃO DEVE:**
+- Persistir as linhas brutas do AGHU (só grade_slot e grade_demanda).
+- Deixar a preferência forçar sobra — só a obrigatoriedade força.
+- Colocar regra de negócio no router nem lógica de alocação no frontend.
+- Acessar ou escrever diretamente na base do AGHU.
+- Introduzir autenticação, RBAC ou multiusuário sem mudança explícita de escopo.
 
-### Fase 3: Funcionalidades Operacionais 
-- [ ] [TASK-013] Criar o fluxo de ajuste manual assistido para alocação.
-- [ ] [TASK-014] Registrar histórico dos ajustes realizados durante o fluxo manual.
+## 4. Estado da Implementação
 
-### Fase 4: Validação, Documentação e Próximos Passos (AGHU)
-- [ ] [TASK-015] Testar o fluxo completo end-to-end da aplicação.
-- [ ] [TASK-016] Documentar todos os endpoints da API utilizando OpenAPI / Swagger.
-- [ ] [TASK-017] Definir quais dados do AGHU serão necessários para substituir futuramente os arquivos CSV.
-- [ ] [TASK-018] Preparar apresentação do MVP do Sistema de Apoio à Alocação Ambulatorial.
+### Domínio (Python puro)
+- [x] Malha de 10 turnos e capacidade em estações.
+- [x] Pipeline de importação (10 passos), validado no arquivo real do AGHU.
+- [x] Motor de alocação heurístico atrás da interface `SolverAlocacao`.
+- [x] Máquina de estados das 6 etapas com regra de invalidação.
+
+### Persistência e API
+- [x] Modelo de dados (10 tabelas) em SQLAlchemy + migração Alembic.
+- [x] Repositórios (cenário e catálogo) e catálogo semeado com o mapa real do HC.
+- [x] Camada de serviços (importação, grades, panorama, restrições, alocação, visualização).
+- [x] API REST por recurso, com edição em lote.
+
+### Frontend
+- [x] Tela de importação e alocação, com histórico e clonagem.
+- [x] Tela do cenário com stepper e as 6 etapas.
+- [x] Componente de planilha editável reusado nas etapas 2, 3 e 6.
+- [x] Painel de visualização com filtros por bloco e pavimento.
+
+### Pendências
+- [ ] Decisões de produto em aberto: distribuição concentrada vs. espalhada sem preferência; pesos do histórico na afinidade; exportação (Excel/PDF) da visualização.
+- [ ] Evolução futura: solver exato (OR-Tools) plugável na interface `SolverAlocacao`.
 
 ## 5. Critérios de Verificação Global
-- [ ] 100% de cobertura em rotas de autenticação.
-- [ ] Zero vulnerabilidades críticas no lint de segurança.
-- [ ] Conformidade total com os esquemas JSON/OpenAPI.
-- [ ] Todos os endpoints implementados e protegidos por JWT
-- [ ] Dashboard exibe cards de resumo e o grid de salas é exibido com códigos de cor.
-- [ ] O sistema identifica conflitos básicos de alocação de forma automática.
-- [ ] Rotas sensíveis utilizam e validam corretamente os tokens JWT
+- [x] O pipeline reproduz a redução do arquivo real (≈5.695 → ≈1.400 slots → 347 demandas).
+- [x] Baseline sem restrições: 43 clínicas alocadas em 9 pavimentos úteis, zero grades sem sala.
+- [x] Obrigatoriedade gera sobra repartida proporcionalmente; preferência nunca gera sobra havendo espaço.
+- [x] Alterar um insumo (etapas 1–4) marca a alocação como desatualizada sem apagar o resultado.
+- [x] A capacidade é sempre derivada das contagens; os relatórios convertem estações em salas físicas.
+- [x] Cada cenário é reabrível com os insumos que o geraram; clonar não afeta a origem.
