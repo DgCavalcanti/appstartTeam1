@@ -19,7 +19,7 @@
         <tr
           v-for="(linha, l) in linhas"
           :key="String(linha[chaveLinha])"
-          class="border-b border-gray-100 hover:bg-gray-50/60"
+          class="border-b border-gray-100 transition-colors duration-150 hover:bg-gray-50/60 even:bg-paper-bg/30"
         >
           <td
             v-for="(coluna, c) in colunas"
@@ -38,7 +38,7 @@
               :max="max"
               :value="linha[coluna.chave]"
               :ref="el => registrar(el, l, c)"
-              class="w-full min-w-[3rem] px-1 py-0.5 text-center tabular-nums bg-transparent rounded border border-transparent hover:border-gray-300 focus:border-paper-primary focus:bg-white focus:outline-none"
+              class="w-full min-w-[3rem] px-1 py-0.5 text-center tabular-nums bg-transparent rounded border border-transparent hover:border-gray-300 focus:border-paper-primary focus:bg-white focus:outline-none focus:ring-1 focus:ring-paper-primary/30 transition-all duration-150"
               @change="aoAlterar(linha, coluna, $event)"
               @focus="($event.target as HTMLInputElement).select()"
               @keydown="aoTeclar($event, l, c)"

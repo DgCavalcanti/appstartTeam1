@@ -1,8 +1,8 @@
 <template>
-  <div class="space-y-6">
+  <div class="space-y-6 animate-fade-in-up">
 
     <!-- ── 1. Envio do arquivo ─────────────────────────────────────────── -->
-    <section class="bg-white rounded-lg shadow-paper p-6">
+    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-1">Etapa 1 — Importação</h2>
       <p class="text-sm text-gray-500 mb-4">
         Envie a exportação da view <code class="px-1 py-0.5 bg-gray-100 rounded text-xs">vw_grades</code>
@@ -16,20 +16,24 @@
       </p>
 
       <label
-        class="block border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition"
-        :class="arrastando ? 'border-paper-primary bg-paper-primary/5' : 'border-gray-300 hover:border-paper-primary'"
+        class="block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-300"
+        :class="arrastando ? 'border-paper-primary bg-paper-primary/5 scale-[1.01] shadow-lg' : arquivo ? 'border-paper-success/50 bg-paper-success/5' : 'border-gray-300 hover:border-paper-primary hover:bg-paper-primary/[0.02]'"
         @dragover.prevent="arrastando = true"
         @dragleave.prevent="arrastando = false"
         @drop.prevent="aoSoltar"
       >
         <input type="file" accept=".csv,.xlsx,.xls" class="hidden" @change="aoEscolher" />
-        <ArrowUpTrayIcon class="h-8 w-8 mx-auto text-gray-400 mb-2" />
+        <div v-if="arquivo" class="mx-auto mb-2 w-10 h-10 rounded-full bg-paper-success/15 flex items-center justify-center">
+          <CheckCircleIcon class="h-6 w-6 text-paper-success" />
+        </div>
+        <ArrowUpTrayIcon v-else class="h-8 w-8 mx-auto text-gray-400 mb-2 transition-transform duration-300" :class="arrastando ? '-translate-y-1' : ''" />
         <p class="text-sm text-paper-text font-medium">
           {{ arquivo ? arquivo.name : 'Clique ou arraste o arquivo aqui' }}
         </p>
         <p v-if="arquivo" class="text-xs text-gray-500 mt-1">
           {{ (arquivo.size / 1024).toFixed(0) }} KB
         </p>
+        <p v-else class="text-xs text-gray-400 mt-1">.csv ou .xlsx</p>
       </label>
 
       <div v-if="erro" class="mt-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
@@ -51,14 +55,14 @@
     </section>
 
     <!-- ── 2. Relatório de redução ─────────────────────────────────────── -->
-    <section v-if="dados" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-if="dados" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-4">Redução dos dados</h2>
 
       <div class="space-y-2">
         <div v-for="e in funil" :key="e.rotulo" class="flex items-center gap-3">
           <span class="w-40 text-sm text-paper-text shrink-0">{{ e.rotulo }}</span>
           <div class="flex-1 bg-gray-100 rounded h-6 relative overflow-hidden">
-            <div class="h-full rounded transition-all" :class="e.cor" :style="{ width: e.pct + '%' }" />
+            <div class="h-full rounded transition-all duration-700 ease-out" :class="e.cor" :style="{ width: e.pct + '%' }" />
           </div>
           <span class="w-28 text-right text-sm tabular-nums shrink-0">
             <strong>{{ e.valor.toLocaleString('pt-BR') }}</strong>
@@ -67,8 +71,8 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mt-6">
-        <div v-for="d in descartes" :key="d.rotulo" class="bg-gray-50 rounded p-3">
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mt-6" style="animation: fadeInUp 0.5s ease-out 0.2s both;">
+        <div v-for="d in descartes" :key="d.rotulo" class="bg-gray-50 rounded-lg p-3 transition-all duration-200 hover:shadow-sm hover:bg-gray-100/80">
           <p class="text-xs text-gray-500">{{ d.rotulo }}</p>
           <p class="text-lg font-semibold text-paper-text tabular-nums">{{ d.valor }}</p>
         </div>
@@ -117,7 +121,7 @@
     </section>
 
     <!-- ── 3. Unidades que não participam ──────────────────────────────── -->
-    <section v-if="dados" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-if="dados" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <div class="flex items-start justify-between gap-4 mb-1">
         <h2 class="text-lg font-semibold text-paper-text">
           Unidades ({{ dados.clinicas.length }} participando)
@@ -161,7 +165,7 @@
     </section>
 
     <!-- ── 4. Panorama de salas ────────────────────────────────────────── -->
-    <section v-if="dados" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-if="dados" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-1">
         Panorama de salas
         <span class="text-sm font-normal text-gray-500">
@@ -217,11 +221,11 @@
     </section>
 
     <!-- ── 5. Resultado da alocação ────────────────────────────────────── -->
-    <section v-if="dados?.alocacao" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-if="dados?.alocacao" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-4">Resultado da alocação</h2>
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div class="bg-paper-success/10 border border-paper-success/30 rounded p-3">
+        <div class="bg-paper-success/10 border border-paper-success/30 rounded-lg p-3 transition-all duration-200 hover:shadow-sm">
           <p class="text-xs text-gray-500">Grades alocadas</p>
           <p class="text-2xl font-semibold text-paper-text tabular-nums">
             {{ dados.alocacao.total_alocado.toLocaleString('pt-BR') }}
@@ -370,7 +374,7 @@
     </section>
 
     <!-- ── 6. Histórico de cenários ────────────────────────────────────── -->
-    <section v-if="cenarios.length" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-if="cenarios.length" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-1">
         Histórico ({{ cenarios.length }})
       </h2>
@@ -408,16 +412,16 @@
                 <router-link
                   :to="`/saa/cenarios/${c.id}`"
                   class="text-paper-primary hover:underline text-xs mr-3 font-medium"
-                >abrir</router-link>
+                >Abrir</router-link>
                 <router-link
                   :to="`/saa/cenarios/${c.id}/visualizacao`"
                   class="text-paper-primary hover:underline text-xs mr-3"
-                >painel</router-link>
+                >Painel</router-link>
                 <button class="text-paper-info hover:underline text-xs mr-3" @click="clonarCenario(c)">
-                  clonar
+                  Clonar
                 </button>
                 <button class="text-paper-danger hover:underline text-xs" @click="excluirCenario(c)">
-                  excluir
+                  Excluir
                 </button>
               </td>
             </tr>
@@ -430,7 +434,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { ArrowUpTrayIcon } from '@heroicons/vue/24/outline';
+import { ArrowUpTrayIcon, CheckCircleIcon } from '@heroicons/vue/24/outline';
 import FiltroAlocacao from '../components/FiltroAlocacao.vue';
 import api from '../services/api';
 

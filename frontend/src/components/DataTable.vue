@@ -8,7 +8,7 @@
         </tr>
       </thead>
       <tbody class="bg-white divide-y divide-gray-100">
-        <tr v-for="item in items" :key="item.id" class="text-gray-700 hover:bg-gray-100">
+        <tr v-for="item in items" :key="item.id" class="text-gray-700 transition-colors duration-150 hover:bg-paper-bg/60">
           <td v-for="header in headers" :key="header.value" class="px-4 py-3 text-sm">
             {{ item[header.value] }}
           </td>

@@ -8,9 +8,9 @@
     </div>
     <div class="h-2 rounded-full bg-gray-100 overflow-hidden">
       <div
-        class="h-full rounded-full transition-all"
+        class="h-full rounded-full transition-all duration-700 ease-out"
         :class="cor"
-        :style="{ width: Math.min(100, Math.max(0, pct)) + '%' }"
+        :style="{ width: Math.min(100, Math.max(0, pct)) + '%', transformOrigin: 'left' }"
       />
     </div>
   </div>
@@ -34,9 +34,9 @@ const props = withDefaults(
  * segue vermelho.
  */
 const cor = computed(() => {
-  if (props.pct >= 95) return 'bg-paper-danger';
-  if (props.pct >= 80) return 'bg-paper-warning';
-  if (props.pct >= 50) return 'bg-paper-success';
-  return 'bg-paper-info';
+  if (props.pct >= 95) return 'bg-gradient-to-r from-paper-danger/90 to-paper-danger';
+  if (props.pct >= 80) return 'bg-gradient-to-r from-paper-warning/90 to-paper-warning';
+  if (props.pct >= 50) return 'bg-gradient-to-r from-paper-success/90 to-paper-success';
+  return 'bg-gradient-to-r from-paper-info/90 to-paper-info';
 });
 </script>

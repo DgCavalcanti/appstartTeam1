@@ -1,23 +1,35 @@
 <template>
   <nav class="bg-white rounded-lg shadow-paper p-4">
     <ol class="flex flex-wrap gap-2">
-      <li v-for="etapa in etapas" :key="etapa.numero" class="flex-1 min-w-[8.5rem]">
+      <li v-for="(etapa, idx) in etapas" :key="etapa.numero" class="flex-1 min-w-[8.5rem] flex items-stretch">
         <button
-          class="w-full text-left px-3 py-2 rounded border transition"
+          class="w-full text-left px-3 py-2 rounded border transition-all duration-200"
           :class="classes(etapa)"
           @click="$emit('ir', etapa.numero)"
         >
           <div class="flex items-center gap-2">
             <span
-              class="w-5 h-5 shrink-0 rounded-full text-xs font-bold flex items-center justify-center"
+              class="w-6 h-6 shrink-0 rounded-full text-xs font-bold flex items-center justify-center transition-all duration-200"
               :class="classesDoNumero(etapa)"
-            >{{ etapa.numero }}</span>
+            >
+              <svg v-if="etapa.status === 'preenchida'" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <span v-else>{{ etapa.numero }}</span>
+            </span>
             <span class="text-xs font-medium truncate">{{ curto(etapa.nome) }}</span>
           </div>
-          <p class="text-[11px] mt-1 ml-7" :class="classesDoSelo(etapa)">
+          <p class="text-[11px] mt-1 ml-8" :class="classesDoSelo(etapa)">
             {{ selo(etapa.status) }}
           </p>
         </button>
+        <!-- Connector line between steps -->
+        <div
+          v-if="idx < etapas.length - 1"
+          class="hidden md:flex items-center px-1"
+        >
+          <div class="w-3 h-0.5 rounded-full" :class="etapa.status === 'preenchida' ? 'bg-paper-success' : 'bg-gray-200'"></div>
+        </div>
       </li>
     </ol>
 
@@ -62,8 +74,8 @@ function curto(nome: string): string {
 }
 
 function classes(etapa: EtapaResumo): string {
-  if (etapa.atual) return 'border-paper-primary bg-paper-primary/10 text-paper-text';
-  return 'border-gray-200 hover:border-gray-300 text-paper-text';
+  if (etapa.atual) return 'border-paper-primary bg-paper-primary/10 text-paper-text shadow-sm';
+  return 'border-gray-200 hover:border-gray-300 hover:shadow-sm text-paper-text';
 }
 
 function classesDoNumero(etapa: EtapaResumo): string {

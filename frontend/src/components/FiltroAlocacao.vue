@@ -1,22 +1,27 @@
 <template>
   <div>
     <div class="flex flex-wrap items-center gap-2 mb-3">
-      <input
-        v-model="busca"
-        type="search"
-        placeholder="Buscar clínica…"
-        class="px-3 py-1.5 text-sm border border-gray-300 rounded w-52 focus:outline-none focus:border-paper-primary"
-      />
+      <div class="relative">
+        <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+        </svg>
+        <input
+          v-model="busca"
+          type="search"
+          placeholder="Buscar clínica…"
+          class="pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded w-52 focus:outline-none focus:border-paper-primary focus:ring-1 focus:ring-paper-primary/30 transition-all duration-200"
+        />
+      </div>
       <select
         v-model="filtroBloco"
-        class="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-paper-primary"
+        class="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-paper-primary focus:ring-1 focus:ring-paper-primary/30 transition-all duration-200"
       >
         <option value="">Todos os blocos</option>
         <option v-for="b in blocos" :key="b" :value="b">{{ b }}</option>
       </select>
       <select
         v-model="filtroPavimento"
-        class="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-paper-primary"
+        class="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-paper-primary focus:ring-1 focus:ring-paper-primary/30 transition-all duration-200"
       >
         <option value="">Todos os pavimentos</option>
         <option v-for="p in pavimentos" :key="p" :value="p">{{ p }}</option>
@@ -26,7 +31,7 @@
         class="text-xs text-paper-info hover:underline"
         @click="limpar"
       >limpar</button>
-      <span class="text-xs text-gray-500 ml-auto">
+      <span class="text-xs text-gray-500 ml-auto tabular-nums bg-gray-100 px-2 py-0.5 rounded-full">
         Mostrando {{ filtradas.length }} de {{ linhas.length }}
       </span>
     </div>

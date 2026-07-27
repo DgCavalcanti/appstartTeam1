@@ -1,6 +1,6 @@
 <template>
-  <div class="space-y-6">
-    <section class="bg-white rounded-lg shadow-paper p-6">
+  <div class="space-y-6 animate-fade-in-up">
+    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-1">Padrões</h2>
       <p class="text-sm text-gray-500">
         Configurações de referência que todo cenário novo herda ao ser criado.
@@ -14,7 +14,7 @@
     </div>
 
     <!-- ── Panorama de salas padrão ────────────────────────────────────── -->
-    <section class="bg-white rounded-lg shadow-paper p-6">
+    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">
         Panorama de salas
         <span class="text-sm font-normal text-gray-500">— {{ capacidadeTotal }} estações por turno</span>
@@ -34,7 +34,7 @@
     </section>
 
     <!-- ── Restrições padrão ───────────────────────────────────────────── -->
-    <section class="bg-white rounded-lg shadow-paper p-6">
+    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Obrigatoriedades e preferências padrão</h3>
       <p class="text-sm text-gray-500 mb-4">
         <strong>Obrigatória</strong> trava a clínica num pavimento;

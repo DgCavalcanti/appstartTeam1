@@ -6,9 +6,9 @@
     </router-link>
   </div>
 
-  <div v-else-if="cenario" class="space-y-6">
+  <div v-else-if="cenario" class="space-y-6 animate-fade-in-up">
     <!-- Cabeçalho -->
-    <section class="bg-white rounded-lg shadow-paper p-6 flex flex-wrap items-start justify-between gap-4">
+    <section class="bg-white rounded-lg shadow-paper p-6 flex flex-wrap items-start justify-between gap-4 transition-shadow duration-300 hover:shadow-md">
       <div>
         <h2 class="text-lg font-semibold text-paper-text">{{ cenario.nome }}</h2>
         <p class="text-sm text-gray-500 mt-1">
@@ -31,9 +31,9 @@
           v-if="temVisualizacao"
           :to="`/saa/cenarios/${cenarioId}/visualizacao`"
           class="text-sm text-paper-primary hover:underline font-medium"
-        >visualização</router-link>
+        >Visualização</router-link>
         <router-link to="/saa/importacao" class="text-sm text-paper-info hover:underline">
-          histórico
+          Histórico
         </router-link>
       </div>
     </section>
@@ -45,7 +45,7 @@
     </div>
 
     <!-- ── Etapa 1 ─────────────────────────────────────────────────────── -->
-    <section v-if="etapaAtual === 1" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-if="etapaAtual === 1" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Importação</h3>
       <p class="text-sm text-gray-500">
         As grades deste cenário vieram do AGHU e já foram tratadas. Para importar
@@ -58,7 +58,7 @@
     </section>
 
     <!-- ── Etapa 2 — grades ────────────────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 2" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-else-if="etapaAtual === 2" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Validar e ajustar grades</h3>
       <p class="text-sm text-gray-500 mb-4">
         Nº de grades por unidade em cada dia/turno. O ajuste é soberano: pode
@@ -94,7 +94,7 @@
     </section>
 
     <!-- ── Etapa 3 — panorama de salas ─────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 3" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-else-if="etapaAtual === 3" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Panorama de salas</h3>
       <p class="text-sm text-gray-500 mb-4">
         Quantas salas de cada tipo há em cada pavimento. A capacidade em estações
@@ -110,7 +110,7 @@
     </section>
 
     <!-- ── Etapa 4 — restrições ────────────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 4" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-else-if="etapaAtual === 4" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Obrigatoriedades e preferências</h3>
       <p class="text-sm text-gray-500 mb-4">
         <strong>Obrigatória</strong> é uma trava: a clínica vai para aquele
@@ -172,11 +172,11 @@
                 :class="r.tipo === 'obrigatorio'
                   ? 'bg-paper-danger/15 text-paper-text'
                   : 'bg-paper-info/15 text-paper-text'"
-              >{{ r.tipo === 'obrigatorio' ? 'obrigatória' : 'preferencial' }}</span>
+              >{{ r.tipo === 'obrigatorio' ? 'Obrigatória' : 'Preferencial' }}</span>
             </td>
             <td class="text-right pl-2">
               <button class="text-paper-danger hover:underline text-xs" @click="removerRestricao(r)">
-                remover
+                Remover
               </button>
             </td>
           </tr>
@@ -239,10 +239,10 @@
                 <span
                   class="px-1.5 py-0.5 rounded"
                   :class="r.tipo === 'obrigatorio' ? 'bg-paper-danger/15' : 'bg-paper-info/15'"
-                >{{ r.tipo === 'obrigatorio' ? 'obrigatória' : 'preferencial' }}</span>
+                >{{ r.tipo === 'obrigatorio' ? 'Obrigatória' : 'Preferencial' }}</span>
               </td>
               <td class="text-right pl-2">
-                <button class="text-paper-danger hover:underline" @click="removerRegraPadrao(r)">remover</button>
+                <button class="text-paper-danger hover:underline" @click="removerRegraPadrao(r)">Remover</button>
               </td>
             </tr>
             <tr v-if="!regrasPadrao.length">
@@ -254,7 +254,7 @@
     </section>
 
     <!-- ── Etapa 5 — executar ──────────────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 5" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-else-if="etapaAtual === 5" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Executar a alocação</h3>
       <p class="text-sm text-gray-500 mb-4">
         Cada clínica é alocada inteira num pavimento, para a semana toda. O que
@@ -269,7 +269,7 @@
 
       <div v-if="cenario.total_alocado || cenario.total_nao_alocado" class="mt-6">
         <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
-          <div class="bg-paper-success/10 border border-paper-success/30 rounded p-3">
+          <div class="bg-paper-success/10 border border-paper-success/30 rounded-lg p-3 transition-all duration-200 hover:shadow-sm">
             <p class="text-xs text-gray-500">Grades alocadas</p>
             <p class="text-2xl font-semibold tabular-nums">{{ cenario.total_alocado }}</p>
           </div>
@@ -295,7 +295,7 @@
     </section>
 
     <!-- ── Etapa 6 — ajustes manuais ───────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 6" class="bg-white rounded-lg shadow-paper p-6">
+    <section v-else-if="etapaAtual === 6" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Ajustes manuais</h3>
       <p class="text-sm text-gray-500 mb-4">
         Edite quantas grades cada clínica atende em cada turno. A demanda é fixa —
@@ -389,9 +389,9 @@ const temVisualizacao = computed(() =>
 const unidadesParticipantes = computed(() => grades.value.filter(u => u.participa));
 
 const ROTULO_STATUS: Record<string, string> = {
-  rascunho: 'rascunho',
-  em_andamento: 'em andamento',
-  concluida: 'confirmado',
+  rascunho: 'Rascunho',
+  em_andamento: 'Em andamento',
+  concluida: 'Confirmado',
 };
 const rotuloDoStatus = computed(() => ROTULO_STATUS[cenario.value?.status] ?? cenario.value?.status);
 const corDoStatus = computed(() => {
