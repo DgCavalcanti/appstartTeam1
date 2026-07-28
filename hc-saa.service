@@ -1,0 +1,16 @@
+[Unit]
+Description=HC-SAA Application Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/app/hc-saa
+# Garante que o arquivo do SQLite exista antes de iniciar, para evitar que o Podman monte como um diretório
+ExecStartPre=/usr/bin/touch /var/app/hc-saa/app.db
+ExecStart=/usr/bin/podman-compose up --build
+ExecStop=/usr/bin/podman-compose down
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
