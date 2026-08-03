@@ -92,6 +92,26 @@ describe('PlanilhaEditavel.vue', () => {
     expect(wrapper.text()).toContain('Nada para exibir');
   });
 
+  it('insere uma linha separadora quando o grupo muda', () => {
+    const wrapper = montar({
+      rotuloGrupo: (l: any) => (l.nome === 'CARDIOLOGIA' ? '2º Pavimento' : '3º Pavimento'),
+    });
+
+    const separadores = wrapper
+      .findAll('tbody tr')
+      .filter(tr => tr.find('td[colspan]').exists())
+      .map(tr => tr.text());
+    expect(separadores).toEqual(['2º Pavimento', '3º Pavimento']);
+  });
+
+  it('não desenha separadores sem rotuloGrupo', () => {
+    const wrapper = montar();
+    const comColspan = wrapper
+      .findAll('tbody tr')
+      .filter(tr => tr.find('td[colspan]').exists());
+    expect(comColspan).toHaveLength(0);
+  });
+
   it('aplica o realce devolvido por corDaCelula', () => {
     const wrapper = mount(PlanilhaEditavel, {
       props: {

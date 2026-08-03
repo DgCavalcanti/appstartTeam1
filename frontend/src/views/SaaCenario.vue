@@ -65,9 +65,35 @@
         passar do que veio do AGHU. Dá para colar do Excel.
       </p>
 
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <div class="relative">
+          <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          <input
+            v-model="buscaGrades"
+            type="search"
+            placeholder="Buscar clínica…"
+            class="pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded w-52 focus:outline-none focus:border-paper-accent focus:ring-1 focus:ring-paper-accent/30 transition-all duration-200"
+          />
+        </div>
+        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+          <input type="checkbox" v-model="apenasAtivas" class="rounded" />
+          apenas grades ativas
+        </label>
+        <button
+          v-if="buscaGrades || apenasAtivas"
+          class="text-xs text-paper-info hover:underline"
+          @click="buscaGrades = ''; apenasAtivas = false"
+        >limpar</button>
+        <span class="text-xs text-gray-500 ml-auto tabular-nums bg-gray-100 px-2 py-0.5 rounded-full">
+          Mostrando {{ linhasGradesFiltradas.length }} de {{ linhasGrades.length }}
+        </span>
+      </div>
+
       <PlanilhaEditavel
         :colunas="colunasGrades"
-        :linhas="linhasGrades"
+        :linhas="linhasGradesFiltradas"
         :rodape="rodapeGrades"
         :cor-da-celula="realceGrade"
         @editar="editarGrade"
@@ -261,31 +287,110 @@
         </div>
 
         <FiltroAlocacao :linhas="linhasResultado" v-slot="{ filtradas }">
-          <PlanilhaEditavel :colunas="colunasResultado" :linhas="filtradas" />
+          <PlanilhaEditavel
+            :colunas="colunasResultado"
+            :linhas="filtradas"
+            :rotulo-grupo="grupoPavimento"
+          />
         </FiltroAlocacao>
       </div>
     </section>
 
-    <!-- ── Etapa 6 — ajustes manuais ───────────────────────────────────── -->
+    <!-- ── Etapa 6 — ajustes manuais (arrastar e soltar) ───────────────── -->
     <section v-else-if="etapaAtual === 6" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Ajustes manuais</h3>
       <p class="text-sm text-gray-500 mb-4">
-        Edite quantas grades cada clínica atende em cada turno. A demanda é fixa —
-        o que sobra vira "sem sala". O total do pavimento não pode passar da
-        capacidade.
+        Arraste uma clínica de um pavimento para outro para realocá-la. Qualquer
+        mudança é aceita — o sistema apenas avisa quando gera conflito. Para
+        trocar duas, arraste uma e depois a outra.
       </p>
 
-      <p v-if="!linhasAjuste.length" class="text-gray-400 py-6 text-center">
+      <p v-if="!temResultado" class="text-gray-400 py-6 text-center">
         Execute a alocação na etapa 5 antes de ajustar.
       </p>
-      <FiltroAlocacao v-else :linhas="linhasAjuste" v-slot="{ filtradas }">
-        <PlanilhaEditavel
-          :colunas="colunasAjuste"
-          :linhas="filtradas"
-          :cor-da-celula="realceAjuste"
-          @editar="ajustar"
-        />
-      </FiltroAlocacao>
+
+      <template v-else>
+        <!-- Painel de conflitos -->
+        <div
+          v-if="conflitos.sobrecarga.length || conflitos.obrigatoriedade.length || conflitos.preferencia.length"
+          class="mb-5 space-y-2"
+        >
+          <div
+            v-if="conflitos.sobrecarga.length"
+            class="bg-paper-danger/10 border border-paper-danger/30 rounded p-3"
+          >
+            <p class="text-sm font-medium text-paper-danger mb-1">
+              Pavimentos sobrecarregados ({{ conflitos.sobrecarga.length }})
+            </p>
+            <ul class="text-xs text-paper-text space-y-0.5">
+              <li v-for="(c, i) in conflitos.sobrecarga" :key="i">
+                <strong>{{ c.pavimento }}</strong> — excede em {{ c.excesso }} estação(ões) na {{ c.turno }}
+              </li>
+            </ul>
+          </div>
+
+          <div
+            v-if="conflitos.obrigatoriedade.length || conflitos.preferencia.length"
+            class="bg-paper-warning/10 border border-paper-warning/30 rounded p-3"
+          >
+            <p class="text-sm font-medium text-paper-text mb-1">Regras não atendidas</p>
+            <ul class="text-xs text-paper-text space-y-0.5">
+              <li v-for="(c, i) in conflitos.obrigatoriedade" :key="'o' + i">
+                <span class="text-paper-danger font-medium">Obrigatoriedade:</span>
+                {{ c.unidade }} deveria estar em {{ c.alvo }} — está em {{ c.atual }}
+              </li>
+              <li v-for="(c, i) in conflitos.preferencia" :key="'p' + i" class="text-gray-500">
+                <span class="font-medium">Preferência:</span>
+                {{ c.unidade }} não está no pavimento preferido ({{ c.alvo }})
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Quadro de pavimentos: arraste as clínicas entre os cards -->
+        <div class="space-y-5">
+          <div v-for="grupo in quadroPorAndar" :key="grupo.andar">
+            <h4 class="text-sm font-semibold text-paper-text mb-2">{{ grupo.pavimento }}</h4>
+            <div class="grid gap-3 md:grid-cols-2">
+              <div
+                v-for="b in grupo.blocos"
+                :key="b.id"
+                class="border rounded-lg p-3 transition-colors duration-150"
+                :class="[
+                  sobreId === b.id ? 'border-paper-primary bg-paper-primary/5' : 'border-gray-200',
+                  sobrecarregado(b) ? 'ring-1 ring-paper-danger/30' : '',
+                ]"
+                @dragover.prevent="sobreId = b.id"
+                @dragleave="aoSairDoCard(b.id)"
+                @drop.prevent="soltarEm(b.id)"
+              >
+                <div class="flex items-center justify-between mb-2">
+                  <p class="text-sm font-medium text-paper-text">{{ b.bloco }}</p>
+                  <span
+                    class="text-xs shrink-0"
+                    :class="sobrecarregado(b) ? 'text-paper-danger font-medium' : 'text-gray-400'"
+                  >{{ b.capacidade }} est.</span>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <span
+                    v-for="c in b.clinicas"
+                    :key="c.id"
+                    draggable="true"
+                    class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 cursor-grab active:cursor-grabbing hover:bg-gray-200 select-none"
+                    :class="arrastandoId === c.id ? 'opacity-40' : ''"
+                    :title="`${c.nome} · ${somaDemanda(c)} grades`"
+                    @dragstart="arrastandoId = c.id"
+                    @dragend="aoTerminarArraste"
+                  >{{ c.nome }}</span>
+                  <span v-if="!b.clinicas.length" class="text-xs text-gray-400 italic py-1">
+                    solte uma clínica aqui
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
     </section>
   </div>
 
@@ -299,7 +404,7 @@ import { useRoute } from 'vue-router';
 import FiltroAlocacao from '../components/FiltroAlocacao.vue';
 import PlanilhaEditavel, { type Alteracao, type Coluna } from '../components/PlanilhaEditavel.vue';
 import Stepper, { type EtapaResumo } from '../components/Stepper.vue';
-import { rotuloTurno } from '../utils/turno';
+import { rotuloDia, rotuloPeriodo, rotuloTurno } from '../utils/turno';
 import api from '../services/api';
 
 const route = useRoute();
@@ -409,6 +514,24 @@ function realceGrade(linha: Record<string, any>): string {
   return linha.participa ? '' : 'opacity-40';
 }
 
+/** Remove acentos e baixa a caixa, para a busca casar "oftalmologia" etc. */
+function normalizarTexto(texto: string): string {
+  return texto.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+const buscaGrades = ref('');
+const apenasAtivas = ref(false);
+
+/** Filtra as linhas da etapa 2 por nome da clínica e/ou só as grades ativas. */
+const linhasGradesFiltradas = computed(() => {
+  const termo = normalizarTexto(buscaGrades.value);
+  return linhasGrades.value.filter(linha => {
+    if (apenasAtivas.value && !linha.participa) return false;
+    if (termo && !normalizarTexto(linha.nome).includes(termo)) return false;
+    return true;
+  });
+});
+
 // ── Etapa 3 ────────────────────────────────────────────────────────────────
 
 /** Os quatro tipos de sala que entram na capacidade, mais as fechadas. */
@@ -439,17 +562,11 @@ function editarSala(p: any, campo: string, evento: Event) {
 // ── Etapas 5 e 6 ───────────────────────────────────────────────────────────
 
 const colunasResultado = computed<Coluna[]>(() => [
-  { chave: 'nome', rotulo: 'Clínica', largura: '18rem' },
   { chave: 'pavimento', rotulo: 'Pavimento', largura: '12rem' },
+  { chave: 'bloco', rotulo: 'Bloco', largura: '8rem' },
+  { chave: 'nome', rotulo: 'Clínica', largura: '18rem' },
   ...colunasTurno.value.map(c => ({ ...c, editavel: false })),
   { chave: 'total_alocado', rotulo: 'Total' },
-  { chave: 'total_nao_alocado', rotulo: 'Sem sala' },
-]);
-
-const colunasAjuste = computed<Coluna[]>(() => [
-  { chave: 'nome', rotulo: 'Clínica', largura: '18rem' },
-  { chave: 'pavimento', rotulo: 'Pavimento', largura: '12rem' },
-  ...colunasTurno.value,
   { chave: 'total_nao_alocado', rotulo: 'Sem sala' },
 ]);
 
@@ -464,13 +581,135 @@ function paraLinhas(unidades: any[]): any[] {
     });
 }
 
-const linhasResultado = computed(() => paraLinhas(cenario.value?.unidades ?? []));
-const linhasAjuste = computed(() => paraLinhas(cenario.value?.unidades ?? []));
+/** Na etapa 5 a tabela é lida "por pavimento": ordena por pavimento, bloco e nome. */
+const linhasResultado = computed(() =>
+  [...paraLinhas(cenario.value?.unidades ?? [])].sort(
+    (a, b) =>
+      (a.pavimento ?? '').localeCompare(b.pavimento ?? '', 'pt-BR') ||
+      (a.bloco ?? '').localeCompare(b.bloco ?? '', 'pt-BR') ||
+      a.nome.localeCompare(b.nome, 'pt-BR')
+  )
+);
+/** Separa a tabela da etapa 5 por pavimento (linha de grupo). */
+function grupoPavimento(linha: Record<string, any>): string {
+  return linha.pavimento ?? '—';
+}
 
-function realceAjuste(linha: Record<string, any>, coluna: Coluna): string {
-  const i = Number(coluna.chave.replace('t', ''));
-  if (Number.isNaN(i)) return '';
-  return (linha.nao_alocado?.[i] ?? 0) > 0 ? 'bg-paper-danger/10' : '';
+// ── Etapa 6 — quadro de arrastar e soltar ────────────────────────────────────
+
+/** Há resultado (motor rodou) assim que alguma clínica tem pavimento. */
+const temResultado = computed(() =>
+  (cenario.value?.unidades ?? []).some((u: any) => u.pavimento_id != null)
+);
+
+/** Soma da demanda semanal de uma clínica — o "tamanho" do chip. */
+function somaDemanda(c: any): number {
+  return (c.demanda ?? []).reduce((s: number, q: number) => s + q, 0);
+}
+
+/**
+ * Quadro da etapa 6: os pavimentos do cenário agrupados por andar, cada um com
+ * as clínicas participantes ali alocadas (ordenadas por nome).
+ */
+const quadroPorAndar = computed(() => {
+  const porPavimento = new Map<number, any[]>();
+  for (const u of cenario.value?.unidades ?? []) {
+    if (!u.participa || u.pavimento_id == null) continue;
+    if (!porPavimento.has(u.pavimento_id)) porPavimento.set(u.pavimento_id, []);
+    porPavimento.get(u.pavimento_id)!.push(u);
+  }
+  const grupos = new Map<number, { andar: number; pavimento: string; blocos: any[] }>();
+  for (const p of cenario.value?.pavimentos ?? []) {
+    const clinicas = [...(porPavimento.get(p.id) ?? [])].sort((a, b) =>
+      a.nome.localeCompare(b.nome, 'pt-BR')
+    );
+    if (!grupos.has(p.andar)) {
+      grupos.set(p.andar, { andar: p.andar, pavimento: p.nome, blocos: [] });
+    }
+    grupos.get(p.andar)!.blocos.push({ ...p, clinicas });
+  }
+  return [...grupos.values()].sort((a, b) => a.andar - b.andar);
+});
+
+/** Um bloco está sobrecarregado se a carga de algum turno passa da capacidade. */
+function sobrecarregado(bloco: any): boolean {
+  return turnos.value.some((_t, i) => {
+    const carga = bloco.clinicas.reduce((s: number, c: any) => s + (c.demanda?.[i] ?? 0), 0);
+    return carga > bloco.capacidade;
+  });
+}
+
+/**
+ * Conflitos atuais, recalculados a cada movimento. "Aceitar e só avisar": nada
+ * bloqueia — só listamos. Sobrecarga (capacidade) fica separada das regras
+ * (obrigatoriedade/preferência).
+ */
+const conflitos = computed(() => {
+  const sobrecarga: { pavimento: string; turno: string; excesso: number }[] = [];
+  for (const grupo of quadroPorAndar.value) {
+    for (const b of grupo.blocos) {
+      turnos.value.forEach((t, i) => {
+        const carga = b.clinicas.reduce((s: number, c: any) => s + (c.demanda?.[i] ?? 0), 0);
+        if (carga > b.capacidade) {
+          sobrecarga.push({
+            pavimento: b.nome_completo,
+            turno: `${rotuloDia(t.dia)} ${rotuloPeriodo(t.periodo)}`,
+            excesso: carga - b.capacidade,
+          });
+        }
+      });
+    }
+  }
+
+  const porUnidade = new Map(
+    (cenario.value?.unidades ?? []).map((u: any) => [u.id, u])
+  );
+  const porPavimento = new Map(
+    (cenario.value?.pavimentos ?? []).map((p: any) => [p.id, p])
+  );
+  const obrigatoriedade: { unidade: string; alvo: string; atual: string }[] = [];
+  const preferencia: { unidade: string; alvo: string }[] = [];
+  for (const r of restricoes.value) {
+    const u: any = porUnidade.get(r.unidade_id);
+    if (!u || u.pavimento_id === r.pavimento_id) continue;
+    const alvo: any = porPavimento.get(r.pavimento_id);
+    const nomeAlvo = alvo?.nome_completo ?? r.pavimento;
+    if (r.tipo === 'obrigatorio') {
+      obrigatoriedade.push({
+        unidade: r.unidade,
+        alvo: nomeAlvo,
+        atual: u.pavimento_completo ?? '—',
+      });
+    } else {
+      preferencia.push({ unidade: r.unidade, alvo: nomeAlvo });
+    }
+  }
+
+  return { sobrecarga, obrigatoriedade, preferencia };
+});
+
+// Estado do arrasto.
+const arrastandoId = ref<number | null>(null);
+const sobreId = ref<number | null>(null);
+
+function aoSairDoCard(pavimentoId: number) {
+  if (sobreId.value === pavimentoId) sobreId.value = null;
+}
+
+function aoTerminarArraste() {
+  arrastandoId.value = null;
+  sobreId.value = null;
+}
+
+/** Soltou um chip num pavimento: move a clínica para lá (se mudou de fato). */
+function soltarEm(pavimentoId: number) {
+  const id = arrastandoId.value;
+  arrastandoId.value = null;
+  sobreId.value = null;
+  if (id == null) return;
+  const unidade = (cenario.value?.unidades ?? []).find((u: any) => u.id === id);
+  if (!unidade || unidade.pavimento_id === pavimentoId) return;
+  mover(id, pavimentoId);
 }
 
 // ── Carregamento ───────────────────────────────────────────────────────────
@@ -628,16 +867,13 @@ async function executar() {
   });
 }
 
-async function ajustar({ linha, chave, valor }: Alteracao) {
-  const indice = Number(chave.replace('t', ''));
-  const turno = turnos.value[indice];
-  const unidade = grades.value.find(u => u.nome === linha.nome);
-  if (!unidade) return;
-
+/** Move uma clínica para outro pavimento (etapa 6). Aceita e só avisa. */
+async function mover(unidadeId: number, pavimentoId: number) {
   await comErro(async () => {
-    const { data } = await api.put(`/api/cenarios/${cenarioId.value}/resultado`, [
-      { unidade_id: unidade.id, dia: turno.dia, turno: turno.periodo, qtd_alocada: valor },
-    ]);
+    const { data } = await api.put(`/api/cenarios/${cenarioId.value}/alocacao`, {
+      unidade_id: unidadeId,
+      pavimento_id: pavimentoId,
+    });
     cenario.value = data;
     const { data: e } = await api.get(`/api/cenarios/${cenarioId.value}/etapas`);
     etapas.value = e.etapas;

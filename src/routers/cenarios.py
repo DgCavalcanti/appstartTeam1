@@ -643,11 +643,9 @@ async def remover_restricao(
 # ---------------------------------------------------------------------------
 
 
-class AjusteManual(BaseModel):
+class MoverClinica(BaseModel):
     unidade_id: int
-    dia: str
-    turno: str
-    qtd_alocada: int
+    pavimento_id: int
 
 
 @router.post("/{cenario_id}/alocar", summary="Executar o motor de alocação")
@@ -663,19 +661,17 @@ async def alocar(cenario_id: int, sessao: AsyncSession = Depends(get_app_db_sess
     return await _detalhar(AlocacaoRepository(sessao), cenario_id)
 
 
-@router.put("/{cenario_id}/resultado", summary="Ajuste manual do resultado")
-async def ajustar_resultado(
+@router.put("/{cenario_id}/alocacao", summary="Ajuste manual: mover clínica de pavimento")
+async def mover_clinica(
     cenario_id: int,
-    ajustes: list[AjusteManual],
+    movimento: MoverClinica,
     sessao: AsyncSession = Depends(get_app_db_session),
 ):
     cenario = await _carregar(sessao, cenario_id)
-    servico = AlocacaoService(sessao)
     try:
-        for ajuste in ajustes:
-            await servico.ajustar(
-                cenario, ajuste.unidade_id, ajuste.dia, ajuste.turno, ajuste.qtd_alocada
-            )
+        await AlocacaoService(sessao).mover(
+            cenario, movimento.unidade_id, movimento.pavimento_id
+        )
     except ValueError as erro:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
 
@@ -749,11 +745,13 @@ async def _detalhar(repo: AlocacaoRepository, cenario_id: int) -> dict:
         destino = pavimentos.get(unidade.pavimento_alocado_id or -1)
         unidades.append(
             {
+                "id": unidade.id,
                 "nome": unidade.unidade_nome,
                 "participa": unidade.participa,
                 # Bloco e pavimento (nome curto) separados — permite filtrar por
                 # cada um independentemente na tela; o completo fica para
                 # tooltip e para quem só quer o texto pronto.
+                "pavimento_id": destino.id if destino else None,
                 "bloco": destino.bloco if destino else None,
                 "pavimento": destino.nome if destino else None,
                 "pavimento_completo": destino.nome_completo if destino else None,

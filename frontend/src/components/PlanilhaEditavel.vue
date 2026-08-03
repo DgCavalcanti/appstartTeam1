@@ -20,43 +20,52 @@
       </thead>
 
       <tbody>
-        <tr
-          v-for="(linha, l) in linhas"
-          :key="String(linha[chaveLinha])"
-          class="border-b border-gray-100 transition-colors duration-150 hover:bg-gray-50/60 even:bg-paper-bg/30"
-        >
-          <td
-            v-for="(coluna, c) in colunas"
-            :key="coluna.chave"
-            class="px-2 py-1"
-            :class="[
-              c === 0 ? 'text-left sticky left-0 bg-white z-10' : 'text-center',
-              corDaCelula(linha, coluna),
-            ]"
+        <template v-for="(linha, l) in linhas" :key="String(linha[chaveLinha])">
+          <!-- Separador de grupo — surge quando a chave de grupo muda. -->
+          <tr
+            v-if="rotuloGrupo && (l === 0 || rotuloGrupo(linha) !== rotuloGrupo(linhas[l - 1]))"
+            class="bg-gray-50"
           >
-            <!-- Célula editável -->
-            <input
-              v-if="coluna.editavel"
-              type="number"
-              :min="min"
-              :max="max"
-              :value="linha[coluna.chave]"
-              :ref="el => registrar(el, l, c)"
-              class="w-full min-w-[3rem] px-1 py-0.5 text-center tabular-nums bg-transparent rounded border border-transparent hover:border-gray-300 focus:border-paper-accent focus:bg-white focus:outline-none focus:ring-1 focus:ring-paper-accent/30 transition-all duration-150"
-              @change="aoAlterar(linha, coluna, $event)"
-              @focus="($event.target as HTMLInputElement).select()"
-              @keydown="aoTeclar($event, l, c)"
-              @paste="aoColar($event, l, c)"
-            />
+            <td
+              :colspan="colunas.length"
+              class="px-2 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wide sticky left-0 bg-gray-50 z-10"
+            >{{ rotuloGrupo(linha) }}</td>
+          </tr>
 
-            <!-- Célula de leitura -->
-            <span v-else :title="String(linha[coluna.chave] ?? '')" class="block truncate">
-              <slot :name="`celula-${coluna.chave}`" :linha="linha">
-                {{ formatar(linha[coluna.chave]) }}
-              </slot>
-            </span>
-          </td>
-        </tr>
+          <tr class="border-b border-gray-100 transition-colors duration-150 hover:bg-gray-50/60">
+            <td
+              v-for="(coluna, c) in colunas"
+              :key="coluna.chave"
+              class="px-2 py-1"
+              :class="[
+                c === 0 ? 'text-left sticky left-0 bg-white z-10' : 'text-center',
+                corDaCelula(linha, coluna),
+              ]"
+            >
+              <!-- Célula editável -->
+              <input
+                v-if="coluna.editavel"
+                type="number"
+                :min="min"
+                :max="max"
+                :value="linha[coluna.chave]"
+                :ref="el => registrar(el, l, c)"
+                class="w-full min-w-[3rem] px-1 py-0.5 text-center tabular-nums bg-transparent rounded border border-transparent hover:border-gray-300 focus:border-paper-accent focus:bg-white focus:outline-none focus:ring-1 focus:ring-paper-accent/30 transition-all duration-150"
+                @change="aoAlterar(linha, coluna, $event)"
+                @focus="($event.target as HTMLInputElement).select()"
+                @keydown="aoTeclar($event, l, c)"
+                @paste="aoColar($event, l, c)"
+              />
+
+              <!-- Célula de leitura -->
+              <span v-else :title="String(linha[coluna.chave] ?? '')" class="block truncate">
+                <slot :name="`celula-${coluna.chave}`" :linha="linha">
+                  {{ formatar(linha[coluna.chave]) }}
+                </slot>
+              </span>
+            </td>
+          </tr>
+        </template>
 
         <tr v-if="!linhas.length">
           <td :colspan="colunas.length" class="px-2 py-6 text-center text-gray-400">
@@ -108,6 +117,12 @@ const props = withDefaults(
     max?: number;
     /** Recebe a linha e a coluna e devolve classes CSS — usado para realce. */
     corDaCelula?: (linha: Record<string, any>, coluna: Coluna) => string;
+    /**
+     * Rótulo do grupo de uma linha. Quando informado, uma linha separadora com
+     * esse rótulo surge sempre que o grupo muda em relação à linha anterior.
+     * As linhas já devem vir ordenadas pelo grupo.
+     */
+    rotuloGrupo?: (linha: Record<string, any>) => string;
   }>(),
   {
     chaveLinha: 'id',
@@ -115,6 +130,7 @@ const props = withDefaults(
     min: 0,
     max: undefined,
     corDaCelula: () => '',
+    rotuloGrupo: undefined,
   }
 );
 

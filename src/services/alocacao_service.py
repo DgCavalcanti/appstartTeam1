@@ -172,64 +172,45 @@ class AlocacaoService:
 
     # -- Etapa 6 -----------------------------------------------------------
 
-    async def ajustar(
-        self, cenario: Alocacao, unidade_id: int, dia: str, turno: str, qtd_alocada: int
-    ) -> AlocacaoResultado:
+    async def mover(
+        self, cenario: Alocacao, unidade_id: int, pavimento_id: int
+    ) -> AlocacaoUnidade:
         """
-        Ajuste manual de um turno: transfere "não alocação" dentro do pavimento.
+        Ajuste manual da etapa 6: muda a clínica inteira de pavimento.
 
-        A demanda é fixa, então o que o gestor decide é a divisão entre alocado e
-        não alocado. O total do pavimento no turno não pode passar da capacidade
-        — senão o ajuste criaria salas que não existem.
+        Autonomia total do gestor — a clínica vai para o pavimento escolhido
+        mesmo que isso estoure a capacidade ou fira uma obrigatoriedade. Aqui
+        nada bloqueia: o sistema aceita e deixa os avisos para a tela. A clínica
+        passa a contar totalmente no destino (o resultado é reescrito a partir
+        da demanda, tudo alocado), e a sobrecarga vira um aviso derivado, não
+        "sem sala" por clínica.
         """
         unidade = next((u for u in cenario.unidades if u.id == unidade_id), None)
         if unidade is None:
             raise ValueError(f"unidade {unidade_id} não pertence a este cenário")
-        if qtd_alocada < 0:
-            raise ValueError("a quantidade alocada não pode ser negativa")
+        if not any(p.id == pavimento_id for p in cenario.pavimentos):
+            raise ValueError(f"pavimento {pavimento_id} não pertence a este cenário")
 
-        registro = next(
-            (
-                r
-                for r in unidade.resultados
-                if r.dia_semana == dia and r.turno == turno
-            ),
-            None,
-        )
-        if registro is None:
-            raise ValueError(
-                f"{unidade.unidade_nome} não tem resultado em {dia}/{turno}"
-            )
+        unidade.pavimento_alocado_id = pavimento_id
 
-        demanda = registro.qtd_alocada + registro.qtd_nao_alocada
-        if qtd_alocada > demanda:
-            raise ValueError(
-                f"não é possível alocar {qtd_alocada}: a demanda em {dia}/{turno} "
-                f"é de {demanda}"
-            )
-
-        pavimento = next(
-            (p for p in cenario.pavimentos if p.id == unidade.pavimento_alocado_id),
-            None,
-        )
-        if pavimento is not None:
-            ocupado_por_outras = sum(
-                r.qtd_alocada
-                for outra in cenario.unidades
-                if outra.id != unidade_id
-                and outra.pavimento_alocado_id == pavimento.id
-                for r in outra.resultados
-                if r.dia_semana == dia and r.turno == turno
-            )
-            if ocupado_por_outras + qtd_alocada > pavimento.capacidade:
-                disponivel = pavimento.capacidade - ocupado_por_outras
-                raise ValueError(
-                    f"{pavimento.nome_completo} só tem {disponivel} estações livres "
-                    f"em {dia}/{turno}"
+        # Reescreve o resultado como colocação total no destino. Limpamos a
+        # coleção (o cascade delete-orphan apaga as linhas) e damos flush antes
+        # de inserir, para não esbarrar na chave única (unidade, dia, turno).
+        unidade.resultados.clear()
+        await self.sessao.flush()
+        for item in unidade.demandas:
+            if item.quantidade <= 0:
+                continue
+            unidade.resultados.append(
+                AlocacaoResultado(
+                    alocacao_unidade_id=unidade.id,
+                    dia_semana=item.dia_semana,
+                    turno=item.turno,
+                    qtd_alocada=item.quantidade,
+                    qtd_nao_alocada=0,
                 )
-
-        registro.qtd_alocada = qtd_alocada
-        registro.qtd_nao_alocada = demanda - qtd_alocada
+            )
+        await self.sessao.flush()
 
         await self.processo.registrar_alteracao(cenario, ETAPA_AJUSTES)
-        return registro
+        return unidade

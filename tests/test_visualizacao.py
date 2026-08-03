@@ -12,7 +12,7 @@ import pytest
 from src.domain.entidades import OBRIGATORIO, indice_turno
 from src.services import RestricoesService, VisualizacaoService
 
-from tests.test_servicos import executar, montar_cenario
+from tests.test_servicos import demanda_em, executar, montar_cenario
 
 
 def montar_visualizacao(com_resultado: bool = True):
@@ -163,17 +163,36 @@ class TestPorPavimento:
         assert vazio["alertas"] == []
 
     def test_excesso_sem_obrigatoriedade_gera_alerta_generico(self):
-        # Ajuste manual (etapa 6) pode deixar sobra sem nenhuma obrigatoriedade
-        # por trás — o alerta então é "excesso", não "obrigatoriedade".
+        # Um pavimento pequeno demais para a demanda: o motor deixa grades sem
+        # sala sem nenhuma obrigatoriedade por trás — o alerta é "excesso".
         async def rodar(sessao):
-            cenario = await montar_cenario(sessao, com_resultado=True)
+            from src.domain.entidades import Clinica
+            from src.domain.importacao import GradeDemanda, GradeSlot
+            from src.repositories import AlocacaoRepository, PavimentoEntrada
             from src.services import AlocacaoService
 
-            servico = AlocacaoService(sessao)
-            unidade = next(u for u in cenario.unidades if u.unidade_nome == "CARDIOLOGIA")
-            # A demanda de CARDIOLOGIA em segunda/manhã é 10; força metade a
-            # ficar sem sala mesmo sem nenhuma obrigatoriedade envolvida.
-            await servico.ajustar(cenario, unidade.id, "segunda", "manha", 5)
+            pico = indice_turno("segunda", "manha")
+            clinicas = (Clinica(id=1, nome="CARDIOLOGIA", demanda=demanda_em([pico], 10)),)
+            slots = (GradeSlot("Dr. Car", "CARDIOLOGIA", "segunda", "manha"),)
+            demandas = (GradeDemanda("CARDIOLOGIA", "segunda", "manha", 10),)
+            # 4 estações — não cabe a demanda de 10; sobram 6 sem sala.
+            pavimentos = (PavimentoEntrada(bloco="Bloco A", nome="Térreo", padrao_1est=4),)
+
+            repo = AlocacaoRepository(sessao)
+            cenario = await repo.criar(
+                nome="Excesso",
+                clinicas=clinicas,
+                slots=slots,
+                demandas=demandas,
+                pavimentos=pavimentos,
+                resultado=None,
+            )
+            cid = cenario.id
+            await sessao.commit()
+            sessao.expunge_all()
+
+            cenario = await repo.obter(cid)
+            await AlocacaoService(sessao).executar(cenario)
             return VisualizacaoService(sessao).montar(cenario)
 
         painel = executar(rodar)
@@ -182,11 +201,11 @@ class TestPorPavimento:
             for p in painel["por_pavimento"]
             if any(c["nome"] == "CARDIOLOGIA" for c in p["clinicas"])
         )
-        assert afetado["total_nao_alocado"] == 5
+        assert afetado["total_nao_alocado"] == 6
         assert afetado["alertas"] == [
             {
                 "tipo": "excesso",
-                "mensagem": "Capacidade excedida: 5 grade(s) sem sala neste pavimento.",
+                "mensagem": "Capacidade excedida: 6 grade(s) sem sala neste pavimento.",
             }
         ]
 

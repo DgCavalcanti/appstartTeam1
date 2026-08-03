@@ -686,65 +686,72 @@ class TestAlocacaoService:
 
 class TestAjustesManuais:
 
-    def test_reduzir_a_alocacao_de_uma_unidade(self):
+    def test_mover_troca_o_pavimento_da_clinica(self):
         async def rodar(sessao):
             cenario = await montar_cenario(sessao, com_resultado=True)
             unidade = next(u for u in cenario.unidades if u.unidade_nome == "CARDIOLOGIA")
-            registro = await AlocacaoService(sessao).ajustar(
-                cenario, unidade.id, "segunda", "manha", 4
+            destino = cenario.pavimentos[1]  # Bloco B
+            await AlocacaoService(sessao).mover(cenario, unidade.id, destino.id)
+            return unidade.pavimento_alocado_id, destino.id
+
+        alocado, destino_id = executar(rodar)
+        assert alocado == destino_id
+
+    def test_mover_deixa_a_clinica_totalmente_alocada(self):
+        # "Aceitar e só avisar": a clínica vai inteira para o destino — nada de
+        # "sem sala" por clínica; a sobrecarga vira aviso derivado na tela.
+        async def rodar(sessao):
+            cenario = await montar_cenario(sessao, com_resultado=True)
+            unidade = next(u for u in cenario.unidades if u.unidade_nome == "CARDIOLOGIA")
+            await AlocacaoService(sessao).mover(
+                cenario, unidade.id, cenario.pavimentos[1].id
+            )
+            registro = next(
+                r
+                for r in unidade.resultados
+                if r.dia_semana == "segunda" and r.turno == "manha"
             )
             return registro.qtd_alocada, registro.qtd_nao_alocada
 
         alocada, nao_alocada = executar(rodar)
-        assert alocada == 4
-        assert nao_alocada == 6, "a demanda de 10 é fixa; o resto vira não alocado"
+        assert alocada == 10, "a demanda inteira (10) fica no destino"
+        assert nao_alocada == 0
 
-    def test_nao_pode_alocar_mais_do_que_a_demanda(self):
+    def test_mover_para_pavimento_sobrecarregado_e_permitido(self):
+        # Bloco B tem 12 estações; juntar CARDIOLOGIA (10) e ORTOPEDIA (8) = 18
+        # estoura a capacidade — mas o gestor pode; o sistema não bloqueia.
         async def rodar(sessao):
             cenario = await montar_cenario(sessao, com_resultado=True)
-            unidade = cenario.unidades[0]
-            with pytest.raises(ValueError, match="a demanda"):
-                await AlocacaoService(sessao).ajustar(
-                    cenario, unidade.id, "segunda", "manha", 999
+            servico = AlocacaoService(sessao)
+            bloco_b = cenario.pavimentos[1].id
+            for nome in ("CARDIOLOGIA", "ORTOPEDIA"):
+                u = next(x for x in cenario.unidades if x.unidade_nome == nome)
+                await servico.mover(cenario, u.id, bloco_b)
+            return [
+                u.pavimento_alocado_id
+                for u in cenario.unidades
+                if u.unidade_nome in ("CARDIOLOGIA", "ORTOPEDIA")
+            ], bloco_b
+
+        pavimentos, bloco_b = executar(rodar)
+        assert pavimentos == [bloco_b, bloco_b]
+
+    def test_mover_unidade_inexistente_e_recusado(self):
+        async def rodar(sessao):
+            cenario = await montar_cenario(sessao, com_resultado=True)
+            with pytest.raises(ValueError, match="não pertence"):
+                await AlocacaoService(sessao).mover(
+                    cenario, 999999, cenario.pavimentos[0].id
                 )
 
         executar(rodar)
 
-    def test_nao_pode_estourar_a_capacidade_do_pavimento(self):
-        async def rodar(sessao):
-            cenario = await montar_cenario(sessao)
-            # Força as três no pavimento de 12 estações para haver disputa.
-            restricoes = RestricoesService(sessao)
-            for unidade in cenario.unidades:
-                await restricoes.definir(
-                    cenario, unidade.id, cenario.pavimentos[1].id, OBRIGATORIO
-                )
-            await AlocacaoService(sessao).executar(cenario)
-
-            unidade = cenario.unidades[0]
-            with pytest.raises(ValueError, match="estações livres"):
-                await AlocacaoService(sessao).ajustar(
-                    cenario, unidade.id, "segunda", "manha", 10
-                )
-
-        executar(rodar)
-
-    def test_quantidade_negativa_e_recusada(self):
+    def test_mover_para_pavimento_inexistente_e_recusado(self):
         async def rodar(sessao):
             cenario = await montar_cenario(sessao, com_resultado=True)
-            with pytest.raises(ValueError, match="negativa"):
-                await AlocacaoService(sessao).ajustar(
-                    cenario, cenario.unidades[0].id, "segunda", "manha", -1
-                )
-
-        executar(rodar)
-
-    def test_turno_sem_resultado(self):
-        async def rodar(sessao):
-            cenario = await montar_cenario(sessao, com_resultado=True)
-            with pytest.raises(ValueError, match="não tem resultado"):
-                await AlocacaoService(sessao).ajustar(
-                    cenario, cenario.unidades[0].id, "sexta", "tarde", 1
+            with pytest.raises(ValueError, match="não pertence"):
+                await AlocacaoService(sessao).mover(
+                    cenario, cenario.unidades[0].id, 999999
                 )
 
         executar(rodar)
