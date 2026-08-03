@@ -9,19 +9,19 @@
           v-model="busca"
           type="search"
           placeholder="Buscar clínica…"
-          class="pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded w-52 focus:outline-none focus:border-paper-primary focus:ring-1 focus:ring-paper-primary/30 transition-all duration-200"
+          class="pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded w-52 focus:outline-none focus:border-paper-accent focus:ring-1 focus:ring-paper-accent/30 transition-all duration-200"
         />
       </div>
       <select
         v-model="filtroBloco"
-        class="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-paper-primary focus:ring-1 focus:ring-paper-primary/30 transition-all duration-200"
+        class="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-paper-accent focus:ring-1 focus:ring-paper-accent/30 transition-all duration-200"
       >
         <option value="">Todos os blocos</option>
         <option v-for="b in blocos" :key="b" :value="b">{{ b }}</option>
       </select>
       <select
         v-model="filtroPavimento"
-        class="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-paper-primary focus:ring-1 focus:ring-paper-primary/30 transition-all duration-200"
+        class="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-paper-accent focus:ring-1 focus:ring-paper-accent/30 transition-all duration-200"
       >
         <option value="">Todos os pavimentos</option>
         <option v-for="p in pavimentos" :key="p" :value="p">{{ p }}</option>

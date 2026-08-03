@@ -21,24 +21,45 @@ const PAINEL = {
   id: 1, nome: 'Cenário 1', status: 'em_andamento', desatualizada: false,
   turnos,
   resumo: {
-    total_alocado: 40, total_nao_alocado: 0, total_demanda: 40,
-    clinicas_alocadas: 3, clinicas_com_sobra: 0,
-    pavimentos_usados: 2, pavimentos_totais: 2,
+    total_alocado: 40, total_nao_alocado: 1, total_demanda: 41,
+    clinicas_alocadas: 3, clinicas_com_sobra: 1,
+    pavimentos_usados: 3, pavimentos_totais: 3,
     salas_no_pico: 20, salas_totais: 30, ocupacao_media_pct: 66.7,
   },
+  // Dois blocos no 2º Pavimento (andar 2) + um no 5º — testa o agrupamento por
+  // andar. `clinicas` agora traz a linha de 10 turnos de cada clínica.
   por_pavimento: [
     {
-      id: 1, nome: 'Bloco E — 2º Pavimento', capacidade: 20, salas_abertas: 15,
-      ocupacao: vetor(4), nao_alocado: vetor(0), total_nao_alocado: 0,
+      id: 1, andar: 2, bloco: 'Bloco E', pavimento: '2º Pavimento', nome: 'Bloco E — 2º Pavimento',
+      capacidade: 20, salas_abertas: 15,
+      ocupacao: vetor(4), nao_alocado: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], total_nao_alocado: 1,
       salas_por_turno: vetor(4), salas_no_pico: 12,
-      ocupacao_media_pct: 20, ocupacao_pico_pct: 20, clinicas: ['OFTALMOLOGIA (AMBULATÓRIO)'],
+      ocupacao_media_pct: 20, ocupacao_pico_pct: 20,
+      clinicas: [
+        { nome: 'OFTALMOLOGIA (AMBULATÓRIO)', alocado: vetor(2), nao_alocado: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], total_alocado: 20, total_nao_alocado: 1 },
+      ],
+      alertas: [{ tipo: 'excesso', mensagem: 'Capacidade excedida: 1 grade(s) sem sala neste pavimento.' }],
+    },
+    {
+      id: 2, andar: 2, bloco: 'Bloco F', pavimento: '2º Pavimento', nome: 'Bloco F — 2º Pavimento',
+      capacidade: 22, salas_abertas: 22,
+      ocupacao: vetor(2), nao_alocado: vetor(0), total_nao_alocado: 0,
+      salas_por_turno: vetor(2), salas_no_pico: 2,
+      ocupacao_media_pct: 9, ocupacao_pico_pct: 9,
+      clinicas: [
+        { nome: 'CARDIOLOGIA (AMBULATÓRIO)', alocado: vetor(1), nao_alocado: vetor(0), total_alocado: 10, total_nao_alocado: 0 },
+      ],
       alertas: [],
     },
     {
-      id: 2, nome: 'Bloco F — 5º Pavimento', capacidade: 22, salas_abertas: 22,
-      ocupacao: vetor(2), nao_alocado: vetor(0), total_nao_alocado: 0,
-      salas_por_turno: vetor(2), salas_no_pico: 2,
-      ocupacao_media_pct: 9, ocupacao_pico_pct: 9, clinicas: ['CARDIOLOGIA (AMBULATÓRIO)'],
+      id: 3, andar: 5, bloco: 'Bloco F', pavimento: '5º Pavimento', nome: 'Bloco F — 5º Pavimento',
+      capacidade: 22, salas_abertas: 22,
+      ocupacao: vetor(1), nao_alocado: vetor(0), total_nao_alocado: 0,
+      salas_por_turno: vetor(1), salas_no_pico: 1,
+      ocupacao_media_pct: 5, ocupacao_pico_pct: 5,
+      clinicas: [
+        { nome: 'PEDIATRIA (AMBULATÓRIO)', alocado: vetor(1), nao_alocado: vetor(0), total_alocado: 10, total_nao_alocado: 0 },
+      ],
       alertas: [],
     },
   ],
@@ -46,14 +67,6 @@ const PAINEL = {
     ...t, alocado: i === 0 ? 10 : 4, nao_alocado: i === 0 ? 2 : 0,
     demanda: i === 0 ? 12 : 4, ocupacao_pct: i === 0 ? 80 : 30,
   })),
-  // Bloco e pavimento (andar) separados. PEDIATRIA fica no 2º Pavimento do
-  // Bloco F, então "2º Pavimento" cruza dois blocos (Bloco E e Bloco F).
-  por_clinica: [
-    { nome: 'OFTALMOLOGIA (AMBULATÓRIO)', bloco: 'Bloco E', pavimento: '2º Pavimento', alocado: vetor(2), nao_alocado: vetor(0), total_alocado: 20, total_nao_alocado: 0 },
-    { nome: 'ORTOPEDIA (AMBULATÓRIO)', bloco: 'Bloco E', pavimento: '3º Pavimento', alocado: vetor(1), nao_alocado: vetor(0), total_alocado: 10, total_nao_alocado: 0 },
-    { nome: 'CARDIOLOGIA (AMBULATÓRIO)', bloco: 'Bloco F', pavimento: '5º Pavimento', alocado: vetor(1), nao_alocado: vetor(0), total_alocado: 10, total_nao_alocado: 0 },
-    { nome: 'PEDIATRIA (AMBULATÓRIO)', bloco: 'Bloco F', pavimento: '2º Pavimento', alocado: vetor(1), nao_alocado: vetor(0), total_alocado: 10, total_nao_alocado: 0 },
-  ],
 };
 
 async function montar() {
@@ -61,14 +74,6 @@ async function montar() {
   const wrapper = mount(SaaVisualizacao);
   await flushPromises();
   return wrapper;
-}
-
-/** As linhas de clínica da tabela de distribuição (exclui o aviso de vazio). */
-function nomesVisiveis(wrapper: any): string[] {
-  return wrapper
-    .findAll('tbody tr')
-    .map((tr: any) => tr.find('td').text().trim())
-    .filter((n: string) => n && !n.includes('Nenhuma'));
 }
 
 describe('SaaVisualizacao.vue', () => {
@@ -99,90 +104,61 @@ describe('SaaVisualizacao.vue', () => {
     expect(Math.max(...alturas)).toBeGreaterThanOrEqual(100);
   });
 
-  // ── Filtro da distribuição das clínicas ────────────────────────────────
+  // ── Nova visão: acordeão pavimento → bloco → clínica ───────────────────
 
-  // As colunas Pavimento e Bloco são as posições 1 e 2 dos dois <select>.
-  const selectBloco = (w: any) => w.findAll('select')[0];
-  const selectPavimento = (w: any) => w.findAll('select')[1];
+  async function abrirAndar(wrapper: any, rotulo: string) {
+    const botao = wrapper.findAll('button').find((b: any) => b.text().includes(rotulo));
+    await botao!.trigger('click');
+  }
 
-  it('mostra todas as clínicas sem filtro', async () => {
+  it('lista os andares e começa colapsado', async () => {
     const wrapper = await montar();
-    expect(nomesVisiveis(wrapper)).toHaveLength(4);
-    expect(wrapper.text()).toContain('Mostrando 4 de 4');
+    const texto = wrapper.text();
+    expect(texto).toContain('2º Pavimento');
+    expect(texto).toContain('5º Pavimento');
+    // Fechado por padrão: as clínicas só aparecem depois de abrir o andar.
+    expect(texto).not.toContain('OFTALMOLOGIA');
   });
 
-  it('separa pavimento e bloco em colunas distintas', async () => {
+  it('sinaliza no cabeçalho do andar quando há grade sem sala', async () => {
     const wrapper = await montar();
-    const cabecalhos = wrapper.findAll('thead th').map(th => th.text());
-    expect(cabecalhos).toContain('Pavimento');
-    expect(cabecalhos).toContain('Bloco');
-
-    // A lista vem em ordem alfabética (visão secundária) — busca a linha da
-    // OFTALMOLOGIA pelo nome em vez de assumir a posição.
-    const linha = wrapper
-      .findAll('tbody tr')
-      .find(tr => tr.text().includes('OFTALMOLOGIA'))!;
-    const celulas = linha.findAll('td');
-    expect(celulas[1].text()).toBe('2º Pavimento'); // coluna Pavimento (andar)
-    expect(celulas[2].text()).toBe('Bloco E');       // coluna Bloco
+    // O 2º Pavimento tem 1 grade sem sala — visível já com o andar fechado.
+    expect(wrapper.text()).toContain('1 sem sala');
   });
 
-  it('busca por nome de clínica (oftalmologia)', async () => {
+  it('abre um andar e mostra seus blocos e clínicas', async () => {
     const wrapper = await montar();
-    await wrapper.find('input[type=search]').setValue('oftalmologia');
-    expect(nomesVisiveis(wrapper)).toEqual(['OFTALMOLOGIA (AMBULATÓRIO)']);
+    await abrirAndar(wrapper, '2º Pavimento');
+    const texto = wrapper.text();
+    expect(texto).toContain('Bloco E');
+    expect(texto).toContain('Bloco F');
+    expect(texto).toContain('OFTALMOLOGIA (AMBULATÓRIO)');
+    expect(texto).toContain('CARDIOLOGIA (AMBULATÓRIO)');
   });
 
-  it('busca ignora acento e caixa', async () => {
+  it('desenha uma faixa de 10 turnos para cada clínica do andar aberto', async () => {
     const wrapper = await montar();
-    await wrapper.find('input[type=search]').setValue('CARDIOLOGÍA');
-    expect(nomesVisiveis(wrapper)).toEqual(['CARDIOLOGIA (AMBULATÓRIO)']);
+    await abrirAndar(wrapper, '2º Pavimento');
+    // As células de turno têm um title "Dia Período: …"; os rótulos de nome não.
+    const celulas = wrapper
+      .findAll('span[title]')
+      .filter((s: any) => /Manhã|Tarde/.test(s.attributes('title') ?? ''));
+    // 2 clínicas no 2º Pavimento × 10 turnos.
+    expect(celulas).toHaveLength(20);
   });
 
-  it('filtra por bloco (todas as clínicas do Bloco E)', async () => {
+  it('marca o turno sem sala em vermelho e sinaliza a clínica e o bloco', async () => {
     const wrapper = await montar();
-    await selectBloco(wrapper).setValue('Bloco E');
+    await abrirAndar(wrapper, '2º Pavimento');
 
-    expect(nomesVisiveis(wrapper).sort()).toEqual([
-      'OFTALMOLOGIA (AMBULATÓRIO)', 'ORTOPEDIA (AMBULATÓRIO)',
-    ]);
-  });
+    const temCelulaSemSala = wrapper
+      .findAll('span[title]')
+      .some((s: any) => s.classes().includes('bg-paper-danger/40'));
+    expect(temCelulaSemSala).toBe(true);
 
-  it('filtra por pavimento cruzando blocos (2º Pavimento)', async () => {
-    const wrapper = await montar();
-    await selectPavimento(wrapper).setValue('2º Pavimento');
-
-    // O 2º Pavimento existe no Bloco E e no Bloco F — ambos aparecem.
-    expect(nomesVisiveis(wrapper).sort()).toEqual([
-      'OFTALMOLOGIA (AMBULATÓRIO)', 'PEDIATRIA (AMBULATÓRIO)',
-    ]);
-  });
-
-  it('combina bloco e pavimento (Bloco E, 2º Pavimento)', async () => {
-    const wrapper = await montar();
-    await selectBloco(wrapper).setValue('Bloco E');
-    await selectPavimento(wrapper).setValue('2º Pavimento');
-
-    expect(nomesVisiveis(wrapper)).toEqual(['OFTALMOLOGIA (AMBULATÓRIO)']);
-    expect(wrapper.text()).toContain('Mostrando 1 de 4');
-  });
-
-  it('os seletores listam só blocos e pavimentos com clínicas', async () => {
-    const wrapper = await montar();
-    const blocos = selectBloco(wrapper).findAll('option').map((o: any) => o.text());
-    const pavimentos = selectPavimento(wrapper).findAll('option').map((o: any) => o.text());
-
-    expect(blocos).toEqual(['Todos os blocos', 'Bloco E', 'Bloco F']);
-    expect(pavimentos).toContain('2º Pavimento');
-    expect(pavimentos).toContain('5º Pavimento');
-  });
-
-  it('avisa quando nada corresponde ao filtro', async () => {
-    const wrapper = await montar();
-    await wrapper.find('input[type=search]').setValue('inexistente xyz');
-
-    expect(nomesVisiveis(wrapper)).toHaveLength(0);
-    expect(wrapper.text()).toContain('Nenhuma clínica corresponde');
+    const texto = wrapper.text();
+    expect(texto).toContain('s/ sala');            // selo na clínica
+    expect(texto).toContain('grade(s) sem sala');  // selo no bloco
   });
 
   it('avisa quando o cenário não foi alocado (409)', async () => {

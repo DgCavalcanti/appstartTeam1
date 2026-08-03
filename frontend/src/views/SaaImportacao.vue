@@ -2,7 +2,7 @@
   <div class="space-y-6 animate-fade-in-up">
 
     <!-- ── 1. Envio do arquivo ─────────────────────────────────────────── -->
-    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-1">Etapa 1 — Importação</h2>
       <p class="text-sm text-gray-500 mb-4">
         Envie a exportação da view <code class="px-1 py-0.5 bg-gray-100 rounded text-xs">vw_grades</code>
@@ -55,7 +55,7 @@
     </section>
 
     <!-- ── 2. Relatório de redução ─────────────────────────────────────── -->
-    <section v-if="dados" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
+    <section v-if="dados" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-4">Redução dos dados</h2>
 
       <div class="space-y-2">
@@ -121,7 +121,7 @@
     </section>
 
     <!-- ── 3. Unidades que não participam ──────────────────────────────── -->
-    <section v-if="dados" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
+    <section v-if="dados" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <div class="flex items-start justify-between gap-4 mb-1">
         <h2 class="text-lg font-semibold text-paper-text">
           Unidades ({{ dados.clinicas.length }} participando)
@@ -165,7 +165,7 @@
     </section>
 
     <!-- ── 4. Panorama de salas ────────────────────────────────────────── -->
-    <section v-if="dados" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
+    <section v-if="dados" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-1">
         Panorama de salas
         <span class="text-sm font-normal text-gray-500">
@@ -221,7 +221,7 @@
     </section>
 
     <!-- ── 5. Resultado da alocação ────────────────────────────────────── -->
-    <section v-if="dados?.alocacao" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
+    <section v-if="dados?.alocacao" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-4">Resultado da alocação</h2>
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -281,8 +281,9 @@
               <th class="text-left py-2 pr-3 font-medium">Pavimento</th>
               <th class="text-right px-2 font-medium">Cap.</th>
               <th class="text-right px-2 font-medium">Clín.</th>
-              <th v-for="(t, i) in dados.turnos" :key="i" class="px-1 font-medium text-center w-10">
-                {{ rotuloTurno(t) }}
+              <th v-for="(t, i) in dados.turnos" :key="i" class="px-2 font-medium text-center whitespace-nowrap">
+                <span class="block leading-tight">{{ rotuloDia(t.dia) }}</span>
+                <span class="block leading-tight font-normal text-gray-400">{{ rotuloPeriodo(t.periodo) }}</span>
               </th>
               <th class="text-right pl-2 font-medium">Pico</th>
             </tr>
@@ -314,8 +315,9 @@
                 <th class="text-left py-2 pr-3 font-medium">Clínica</th>
                 <th class="text-left px-2 font-medium">Pavimento</th>
                 <th class="text-left px-2 font-medium">Bloco</th>
-                <th v-for="(t, i) in dados.turnos" :key="i" class="px-1 font-medium text-center w-10">
-                  {{ rotuloTurno(t) }}
+                <th v-for="(t, i) in dados.turnos" :key="i" class="px-2 font-medium text-center whitespace-nowrap">
+                  <span class="block leading-tight">{{ rotuloDia(t.dia) }}</span>
+                  <span class="block leading-tight font-normal text-gray-400">{{ rotuloPeriodo(t.periodo) }}</span>
                 </th>
                 <th class="text-right pl-2 font-medium">Total</th>
                 <th class="text-right pl-2 font-medium">Sem sala</th>
@@ -374,7 +376,7 @@
     </section>
 
     <!-- ── 6. Histórico de cenários ────────────────────────────────────── -->
-    <section v-if="cenarios.length" class="bg-white rounded-lg shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
+    <section v-if="cenarios.length" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-1">
         Histórico ({{ cenarios.length }})
       </h2>
@@ -436,6 +438,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { ArrowUpTrayIcon, CheckCircleIcon } from '@heroicons/vue/24/outline';
 import FiltroAlocacao from '../components/FiltroAlocacao.vue';
+import { rotuloDia, rotuloPeriodo } from '../utils/turno';
 import api from '../services/api';
 
 interface Turno { dia: string; periodo: string }
@@ -511,14 +514,6 @@ const participantes = ref<string[]>([]);
 const unidadesNovas = ref<string[]>([]);
 /** O gestor mexeu na seleção? Se sim, mandamos exclusões explícitas. */
 const temOverride = ref(false);
-
-const ABREV_DIA: Record<string, string> = {
-  segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui', sexta: 'Sex',
-};
-
-function rotuloTurno(t: Turno): string {
-  return `${ABREV_DIA[t.dia] ?? t.dia}${t.periodo === 'manha' ? 'M' : 'T'}`;
-}
 
 /**
  * Capacidade em estações — sempre derivada das contagens, nunca digitada,

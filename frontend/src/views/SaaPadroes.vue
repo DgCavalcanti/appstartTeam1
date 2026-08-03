@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6 animate-fade-in-up">
-    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h2 class="text-lg font-semibold text-paper-text mb-1">Padrões</h2>
       <p class="text-sm text-gray-500">
         Configurações de referência que todo cenário novo herda ao ser criado.
@@ -14,7 +14,7 @@
     </div>
 
     <!-- ── Panorama de salas padrão ────────────────────────────────────── -->
-    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">
         Panorama de salas
         <span class="text-sm font-normal text-gray-500">— {{ capacidadeTotal }} estações por turno</span>
@@ -24,17 +24,52 @@
         estações é calculada — uma sala de 2 estações vale 2.
       </p>
 
-      <PlanilhaEditavel
-        v-if="pavimentos.length"
-        :colunas="colunasPanorama"
-        :linhas="pavimentos"
-        :rodape="rodapePanorama"
-        @editar="editarPanorama"
-      />
+      <div v-if="pavimentos.length" class="overflow-x-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="text-xs text-gray-500 border-b border-gray-200">
+              <th class="text-left py-2 pr-3 font-medium">Pavimento</th>
+              <th class="px-2 font-medium text-center">Padrão<br />1 est.</th>
+              <th class="px-2 font-medium text-center">Padrão<br />2 est.</th>
+              <th class="px-2 font-medium text-center">Espec.<br />1 est.</th>
+              <th class="px-2 font-medium text-center">Espec.<br />2 est.</th>
+              <th class="px-2 font-medium text-center">Fechadas</th>
+              <th class="pl-3 font-medium text-right">Estações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="(p, i) in pavimentos" :key="p.id">
+              <tr v-if="mudaDeAndar(i)" class="bg-gray-50">
+                <td colspan="7" class="py-1 pr-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Pavimento {{ p.andar || '—' }}
+                </td>
+              </tr>
+              <tr class="border-b border-gray-100">
+                <td class="py-1.5 pr-3 text-paper-text whitespace-nowrap">{{ p.nome_completo }}</td>
+                <td v-for="campo in CAMPOS_SALA" :key="campo" class="px-1 text-center">
+                  <input
+                    type="number" min="0"
+                    :value="p[campo]"
+                    class="w-14 px-1 py-1 border border-gray-300 rounded text-sm text-center tabular-nums"
+                    @change="editarSala(p, campo, $event)"
+                  />
+                </td>
+                <td class="pl-3 text-right tabular-nums font-medium">{{ p.capacidade }}</td>
+              </tr>
+            </template>
+          </tbody>
+          <tfoot>
+            <tr class="text-sm">
+              <td colspan="6" class="pt-2 text-right text-gray-500">Total</td>
+              <td class="pt-2 pl-3 text-right tabular-nums font-semibold">{{ capacidadeTotal }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </section>
 
     <!-- ── Restrições padrão ───────────────────────────────────────────── -->
-    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Obrigatoriedades e preferências padrão</h3>
       <p class="text-sm text-gray-500 mb-4">
         <strong>Obrigatória</strong> trava a clínica num pavimento;
@@ -114,11 +149,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 
-import PlanilhaEditavel, { type Alteracao, type Coluna } from '../components/PlanilhaEditavel.vue';
+import { type Alteracao } from '../components/PlanilhaEditavel.vue';
 import api from '../services/api';
 
 interface Pavimento {
-  id: number; bloco: string; nome: string; nome_completo: string;
+  id: number; bloco: string; nome: string; nome_completo: string; andar: number;
   padrao_1est: number; padrao_2est: number; esp_1est: number; esp_2est: number;
   fechada: number; capacidade: number;
   [chave: string]: string | number;
@@ -135,24 +170,33 @@ const erro = ref('');
 
 const nova = ref({ unidade: '', pavimento_catalogo_id: 0, tipo: 'obrigatorio' });
 
-const colunasPanorama: Coluna[] = [
-  { chave: 'nome_completo', rotulo: 'Pavimento', largura: '18rem' },
-  { chave: 'padrao_1est', rotulo: 'Padrão 1 est.', editavel: true },
-  { chave: 'padrao_2est', rotulo: 'Padrão 2 est.', editavel: true },
-  { chave: 'esp_1est', rotulo: 'Espec. 1 est.', editavel: true },
-  { chave: 'esp_2est', rotulo: 'Espec. 2 est.', editavel: true },
-  { chave: 'fechada', rotulo: 'Fechadas', editavel: true },
-  { chave: 'capacidade', rotulo: 'Estações' },
-];
+/** Os quatro tipos de sala que entram na capacidade, mais as fechadas. */
+const CAMPOS_SALA = ['padrao_1est', 'padrao_2est', 'esp_1est', 'esp_2est', 'fechada'] as const;
 
 const capacidadeTotal = computed(() =>
   pavimentos.value.reduce((s, p) => s + (p.capacidade || 0), 0)
 );
 
-const rodapePanorama = computed(() => ({
-  nome_completo: 'Total',
-  capacidade: capacidadeTotal.value,
-}));
+/**
+ * A lista já vem agrupada por andar (o backend ordena assim); aqui só
+ * decidimos onde começa cada grupo, comparando com o pavimento anterior.
+ */
+function mudaDeAndar(indice: number): boolean {
+  if (indice === 0) return true;
+  return pavimentos.value[indice].andar !== pavimentos.value[indice - 1].andar;
+}
+
+/** Edição de uma contagem de salas no panorama, persistindo na hora. */
+function editarSala(p: any, campo: string, evento: Event) {
+  const alvo = evento.target as HTMLInputElement;
+  const valor = Number(alvo.value);
+  if (!Number.isFinite(valor) || valor < 0) {
+    alvo.value = String(p[campo] ?? 0); // valor inválido: devolve ao que estava
+    return;
+  }
+  if (valor === p[campo]) return;
+  editarPanorama({ linha: p, chave: campo, valor });
+}
 
 async function carregar() {
   try {

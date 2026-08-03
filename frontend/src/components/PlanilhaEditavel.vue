@@ -10,7 +10,11 @@
             :class="c === 0 ? 'text-left sticky left-0 bg-gray-50 z-10' : 'text-center'"
             :style="coluna.largura ? { width: coluna.largura } : undefined"
           >
-            {{ coluna.rotulo }}
+            <span
+              v-for="(parte, k) in String(coluna.rotulo).split('\n')"
+              :key="k"
+              class="block leading-tight"
+            >{{ parte }}</span>
           </th>
         </tr>
       </thead>
@@ -38,7 +42,7 @@
               :max="max"
               :value="linha[coluna.chave]"
               :ref="el => registrar(el, l, c)"
-              class="w-full min-w-[3rem] px-1 py-0.5 text-center tabular-nums bg-transparent rounded border border-transparent hover:border-gray-300 focus:border-paper-primary focus:bg-white focus:outline-none focus:ring-1 focus:ring-paper-primary/30 transition-all duration-150"
+              class="w-full min-w-[3rem] px-1 py-0.5 text-center tabular-nums bg-transparent rounded border border-transparent hover:border-gray-300 focus:border-paper-accent focus:bg-white focus:outline-none focus:ring-1 focus:ring-paper-accent/30 transition-all duration-150"
               @change="aoAlterar(linha, coluna, $event)"
               @focus="($event.target as HTMLInputElement).select()"
               @keydown="aoTeclar($event, l, c)"

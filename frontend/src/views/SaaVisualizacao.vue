@@ -1,5 +1,5 @@
 <template>
-  <div v-if="erroFatal" class="bg-white rounded-lg shadow-paper p-6">
+  <div v-if="erroFatal" class="bg-white rounded-lg border border-paper-line shadow-paper p-6">
     <p class="text-paper-danger">{{ erroFatal }}</p>
     <router-link :to="`/saa/cenarios/${cenarioId}`" class="text-paper-info hover:underline text-sm">
       voltar ao cenário
@@ -8,7 +8,7 @@
 
   <div v-else-if="painel" class="space-y-6 animate-fade-in-up">
     <!-- Cabeçalho -->
-    <section class="bg-white rounded-lg shadow-paper p-6 flex flex-wrap items-start justify-between gap-4 transition-shadow duration-300 hover:shadow-md">
+    <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 flex flex-wrap items-start justify-between gap-4 transition-shadow duration-300 hover:shadow-md">
       <div>
         <h2 class="text-lg font-semibold text-paper-text">{{ painel.nome }}</h2>
         <p class="text-sm text-gray-500 mt-1">Painel consolidado · somente leitura</p>
@@ -31,7 +31,7 @@
 
     <!-- Indicadores -->
     <section class="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div class="bg-white rounded-lg shadow-paper p-4 transition-all duration-200 hover:shadow-md">
+      <div class="bg-white rounded-lg border border-paper-line shadow-paper p-4 transition-all duration-200 hover:shadow-md">
         <p class="text-xs text-gray-500">Grades alocadas</p>
         <p class="text-2xl font-semibold tabular-nums text-paper-text">
           {{ painel.resumo.total_alocado.toLocaleString('pt-BR') }}
@@ -40,7 +40,7 @@
       </div>
 
       <div
-        class="bg-white rounded-lg shadow-paper p-4 transition-all duration-200 hover:shadow-md"
+        class="bg-white rounded-lg border border-paper-line shadow-paper p-4 transition-all duration-200 hover:shadow-md"
         :class="painel.resumo.total_nao_alocado ? 'ring-1 ring-paper-danger/30' : ''"
       >
         <p class="text-xs text-gray-500">Sem sala</p>
@@ -50,7 +50,7 @@
         <p class="text-xs text-gray-400 mt-1">{{ painel.resumo.clinicas_com_sobra }} clínica(s)</p>
       </div>
 
-      <div class="bg-white rounded-lg shadow-paper p-4 transition-all duration-200 hover:shadow-md">
+      <div class="bg-white rounded-lg border border-paper-line shadow-paper p-4 transition-all duration-200 hover:shadow-md">
         <p class="text-xs text-gray-500">Salas no pico</p>
         <p class="text-2xl font-semibold tabular-nums text-paper-text">
           {{ painel.resumo.salas_no_pico }}<span class="text-base text-gray-400">/{{ painel.resumo.salas_totais }}</span>
@@ -60,7 +60,7 @@
         </p>
       </div>
 
-      <div class="bg-white rounded-lg shadow-paper p-4 transition-all duration-200 hover:shadow-md">
+      <div class="bg-white rounded-lg border border-paper-line shadow-paper p-4 transition-all duration-200 hover:shadow-md">
         <p class="text-xs text-gray-500">Ocupação média</p>
         <p class="text-2xl font-semibold tabular-nums text-paper-text">{{ painel.resumo.ocupacao_media_pct }}%</p>
         <MedidorOcupacao :pct="painel.resumo.ocupacao_media_pct" :mostrar-valor="false" class="mt-2" />
@@ -68,7 +68,7 @@
     </section>
 
     <!-- Ocupação por turno — gráfico agrupado por dia -->
-    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-6">Ocupação por turno</h3>
 
       <div class="flex">
@@ -140,101 +140,107 @@
       </div>
     </section>
 
-    <!-- Ocupação por pavimento — visão principal: quais unidades funcionais
-         estão em cada pavimento, com ocupação, capacidade, salas, demanda não
-         alocada e alertas. -->
-    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
-      <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-1">Pavimentos</h3>
+    <!-- Alocação por pavimento → bloco → clínica: a visão espacial do prédio. -->
+    <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+      <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-1">Alocação por pavimento</h3>
       <p class="text-xs text-gray-500 mb-4">
-        Visão principal — quais unidades funcionais estão alocadas em cada
-        pavimento, e onde há sobra ou risco.
+        Toque num andar para abrir seus blocos e as clínicas alocadas em cada um.
+        A faixa de 10 quadradinhos é a semana (Seg M … Sex T) de cada clínica.
       </p>
-      <div class="space-y-3">
+
+      <div class="space-y-2">
         <div
-          v-for="p in painel.por_pavimento"
-          :key="p.id"
-          class="border rounded-lg p-4 transition-all duration-200 hover:shadow-sm"
-          :class="p.alertas.length ? 'border-paper-danger/30 bg-paper-danger/5' : 'border-gray-200'"
+          v-for="grupo in porAndar"
+          :key="grupo.andar"
+          class="border border-gray-200 rounded-lg overflow-hidden"
         >
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p class="text-sm font-medium text-paper-text">{{ p.nome }}</p>
-              <p class="text-xs text-gray-500 mt-0.5">
-                {{ p.salas_no_pico }}/{{ p.salas_abertas }} salas no pico ·
-                {{ p.capacidade }} estações de capacidade ·
-                {{ p.clinicas.length }} unidade(s) funcional(is)
-              </p>
+          <!-- Cabeçalho do andar — clique para abrir/fechar -->
+          <button
+            type="button"
+            class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+            :aria-expanded="aberto(grupo.andar)"
+            @click="alternar(grupo.andar)"
+          >
+            <span class="flex items-center gap-2 min-w-0">
+              <ChevronRightIcon
+                class="h-4 w-4 text-gray-400 shrink-0 transition-transform duration-200"
+                :class="aberto(grupo.andar) ? 'rotate-90' : ''"
+              />
+              <span class="text-sm font-semibold text-paper-text truncate">{{ grupo.pavimento }}</span>
+            </span>
+            <span class="flex items-center gap-3 shrink-0 text-xs text-gray-500">
+              <span
+                v-if="grupo.semSala"
+                class="text-paper-danger bg-paper-danger/10 rounded px-2 py-0.5 font-medium"
+              >{{ grupo.semSala }} sem sala</span>
+              <span>{{ grupo.blocos.length }} bloco(s) · {{ grupo.clinicas }} clínica(s)</span>
+            </span>
+          </button>
+
+          <!-- Blocos do andar (só quando aberto) -->
+          <div v-if="aberto(grupo.andar)" class="px-4 pb-4 pt-1 border-t border-gray-100 grid gap-3 md:grid-cols-2">
+            <div
+              v-for="b in grupo.blocos"
+              :key="b.id"
+              class="border rounded-lg p-4 transition-all duration-200 hover:shadow-sm"
+              :class="b.total_nao_alocado ? 'border-paper-danger/30 bg-paper-danger/5' : 'border-gray-200'"
+            >
+              <!-- Cabeçalho do bloco -->
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <p class="text-sm font-medium text-paper-text">{{ b.bloco }}</p>
+                  <p class="text-xs text-gray-500 mt-0.5">
+                    {{ b.salas_no_pico }}/{{ b.salas_abertas }} salas no pico · {{ b.capacidade }} estações
+                  </p>
+                </div>
+                <span
+                  class="text-sm tabular-nums font-medium shrink-0"
+                  :class="b.total_nao_alocado ? 'text-paper-danger' : 'text-paper-text'"
+                  :title="`ocupação de pico: ${b.ocupacao_pico_pct}% da capacidade`"
+                >{{ b.ocupacao_pico_pct }}%</span>
+              </div>
+
+              <!-- Alerta de sobra -->
+              <div
+                v-if="b.total_nao_alocado"
+                class="mt-2 inline-flex items-center gap-1.5 text-xs text-paper-danger bg-paper-danger/10 rounded px-2 py-1"
+              >{{ b.total_nao_alocado }} grade(s) sem sala</div>
+
+              <!-- Clínicas do bloco, cada uma com sua faixa de turnos -->
+              <div v-if="b.clinicas.length" class="mt-3 space-y-1.5">
+                <div
+                  v-for="c in b.clinicas"
+                  :key="c.nome"
+                  class="flex items-center justify-between gap-3"
+                >
+                  <span class="text-xs text-paper-text truncate" :title="c.nome">
+                    {{ c.nome }}
+                    <span v-if="c.total_nao_alocado" class="text-paper-danger">· {{ c.total_nao_alocado }} s/ sala</span>
+                  </span>
+                  <span class="flex gap-0.5 shrink-0">
+                    <span
+                      v-for="(t, i) in painel.turnos"
+                      :key="i"
+                      class="w-3 h-3.5 rounded-sm"
+                      :class="corTurno(c, i)"
+                      :title="tituloTurno(t, c, i)"
+                    ></span>
+                  </span>
+                </div>
+              </div>
+              <p v-else class="text-xs text-gray-400 mt-2">nenhuma clínica alocada aqui</p>
             </div>
-            <div class="flex items-center gap-3 shrink-0">
-              <MedidorOcupacao :pct="p.ocupacao_pico_pct" :mostrar-valor="false" class="w-32" />
-              <span class="text-sm tabular-nums font-medium text-paper-text w-12 text-right">{{ p.ocupacao_pico_pct }}%</span>
-            </div>
           </div>
-
-          <p v-if="p.total_nao_alocado" class="text-xs text-paper-danger font-medium mt-2">
-            {{ p.total_nao_alocado }} grade(s) sem sala neste pavimento
-          </p>
-
-          <div v-if="p.alertas.length" class="mt-2 space-y-1">
-            <p
-              v-for="(a, i) in p.alertas"
-              :key="i"
-              class="text-xs text-paper-danger bg-white/60 border border-paper-danger/20 rounded px-2 py-1"
-            >⚠ {{ a.mensagem }}</p>
-          </div>
-
-          <div v-if="p.clinicas.length" class="mt-3 flex flex-wrap gap-1.5">
-            <span
-              v-for="nome in p.clinicas"
-              :key="nome"
-              class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
-            >{{ nome }}</span>
-          </div>
-          <p v-else class="text-xs text-gray-400 mt-2">nenhuma unidade alocada aqui</p>
         </div>
       </div>
-    </section>
 
-    <!-- Clínica → pavimento (visão secundária, ordem alfabética, com busca/filtro) -->
-    <section class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
-      <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-1">Unidades funcionais</h3>
-      <p class="text-xs text-gray-500 mb-3">Visão secundária, em ordem alfabética.</p>
-
-      <FiltroAlocacao :linhas="clinicasEmOrdemAlfabetica" v-slot="{ filtradas }">
-        <div class="overflow-x-auto max-h-[32rem] overflow-y-auto">
-          <table class="w-full text-sm border-collapse">
-            <thead class="sticky top-0 bg-white">
-              <tr class="text-xs text-gray-500 border-b border-gray-200">
-                <th class="text-left py-2 pr-3 font-medium">Clínica</th>
-                <th class="text-left px-2 font-medium">Pavimento</th>
-                <th class="text-left px-2 font-medium">Bloco</th>
-                <th v-for="(t, i) in painel.turnos" :key="i" class="px-1 font-medium text-center w-10">{{ rotuloTurno(t) }}</th>
-                <th class="text-right pl-2 font-medium">Total</th>
-                <th class="text-right pl-2 font-medium">Sem sala</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="c in filtradas" :key="c.nome" class="border-b border-gray-100">
-                <td class="py-2 pr-3 text-paper-text truncate max-w-xs" :title="c.nome">{{ c.nome }}</td>
-                <td class="px-2 text-gray-600 text-xs">{{ c.pavimento ?? '—' }}</td>
-                <td class="px-2 text-gray-500 text-xs">{{ c.bloco ?? '—' }}</td>
-                <td v-for="(q, i) in c.alocado" :key="i" class="text-center px-1 tabular-nums text-xs" :class="q === 0 ? 'text-gray-300' : 'text-paper-text'">
-                  {{ q || '·' }}
-                </td>
-                <td class="text-right pl-2 tabular-nums">{{ c.total_alocado }}</td>
-                <td class="text-right pl-2 tabular-nums" :class="c.total_nao_alocado ? 'text-paper-danger font-semibold' : 'text-gray-300'">
-                  {{ c.total_nao_alocado || '—' }}
-                </td>
-              </tr>
-              <tr v-if="!filtradas.length">
-                <td :colspan="painel.turnos.length + 5" class="py-6 text-center text-gray-400">
-                  Nenhuma clínica corresponde ao filtro.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </FiltroAlocacao>
+      <!-- Legenda -->
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-6 text-xs text-gray-500">
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3.5 rounded-sm bg-gray-100"></span> vazio</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3.5 rounded-sm bg-paper-success/30"></span> com grade</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3.5 rounded-sm bg-paper-danger/40"></span> sem sala</span>
+        <span class="ml-auto">faixa = Seg M … Sex T</span>
+      </div>
     </section>
   </div>
 
@@ -242,11 +248,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import { ChevronRightIcon } from '@heroicons/vue/24/outline';
 
-import FiltroAlocacao from '../components/FiltroAlocacao.vue';
 import MedidorOcupacao from '../components/MedidorOcupacao.vue';
+import { rotuloDia, rotuloPeriodo } from '../utils/turno';
 import api from '../services/api';
 
 const route = useRoute();
@@ -254,10 +261,6 @@ const cenarioId = computed(() => Number(route.params.id));
 
 const painel = ref<any>(null);
 const erroFatal = ref('');
-
-const ABREV: Record<string, string> = {
-  segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui', sexta: 'Sex',
-};
 
 const NOME_DIA: Record<string, string> = {
   segunda: 'Segunda-feira',
@@ -268,10 +271,6 @@ const NOME_DIA: Record<string, string> = {
 };
 
 const ORDEM_DIA = ['segunda', 'terca', 'quarta', 'quinta', 'sexta'];
-
-function rotuloTurno(t: { dia: string; periodo: string }): string {
-  return `${ABREV[t.dia] ?? t.dia}${t.periodo === 'manha' ? 'M' : 'T'}`;
-}
 
 /** Altura em pixels da área do gráfico de barras. */
 const ALTURA_GRAFICO = 160;
@@ -322,16 +321,54 @@ const turnosPorDia = computed(() => {
 });
 
 /**
- * Visão secundária: mesma lista de `por_clinica`, mas em ordem alfabética.
- * A ordem que a API devolve (sobra primeiro) é a que importa para o resumo;
- * esta tela é só para o gestor localizar uma unidade pelo nome. `FiltroAlocacao`
- * ainda deixa buscar por nome ou filtrar por bloco/pavimento em cima dela.
+ * Agrupa os blocos por andar — o eixo principal da tela. `por_pavimento` já vem
+ * ordenado por andar/id no backend, então a ordem de inserção é preservada.
  */
-const clinicasEmOrdemAlfabetica = computed(() =>
-  [...(painel.value?.por_clinica ?? [])].sort((a: any, b: any) =>
-    a.nome.localeCompare(b.nome, 'pt-BR')
-  )
-);
+const porAndar = computed(() => {
+  const grupos = new Map<number, { andar: number; pavimento: string; blocos: any[] }>();
+  for (const b of painel.value?.por_pavimento ?? []) {
+    if (!grupos.has(b.andar)) {
+      grupos.set(b.andar, { andar: b.andar, pavimento: b.pavimento, blocos: [] });
+    }
+    grupos.get(b.andar)!.blocos.push(b);
+  }
+  return [...grupos.values()]
+    .map(g => ({
+      ...g,
+      clinicas: g.blocos.reduce((s, b) => s + b.clinicas.length, 0),
+      semSala: g.blocos.reduce((s, b) => s + b.total_nao_alocado, 0),
+    }))
+    .sort((a, b) => a.andar - b.andar);
+});
+
+/** Andares abertos no acordeão — todos começam fechados (a lista compacta). */
+const abertos = reactive<Record<number, boolean>>({});
+function alternar(andar: number) {
+  abertos[andar] = !abertos[andar];
+}
+function aberto(andar: number): boolean {
+  return abertos[andar] === true;
+}
+
+/**
+ * Cor de um turno na faixa da clínica. Clínica não tem capacidade própria, então
+ * a faixa mostra o que é significável: sem sala (vermelho), com grade (verde) ou
+ * vazio (cinza) — o gradiente de ocupação fica no pico do bloco.
+ */
+function corTurno(c: any, i: number): string {
+  if ((c.nao_alocado?.[i] ?? 0) > 0) return 'bg-paper-danger/40';
+  if ((c.alocado?.[i] ?? 0) > 0) return 'bg-paper-success/30';
+  return 'bg-gray-100';
+}
+
+function tituloTurno(t: { dia: string; periodo: string }, c: any, i: number): string {
+  const quando = `${rotuloDia(t.dia)} ${rotuloPeriodo(t.periodo)}`;
+  const alocada = c.alocado?.[i] ?? 0;
+  const semSala = c.nao_alocado?.[i] ?? 0;
+  if (semSala > 0) return `${quando}: ${alocada} alocada(s), ${semSala} sem sala`;
+  if (alocada > 0) return `${quando}: ${alocada} grade(s)`;
+  return `${quando}: sem demanda`;
+}
 
 /**
  * Altura da barra em pixels escalonada pelo eixo Y (porcentagem de ocupação),

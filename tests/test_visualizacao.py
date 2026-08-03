@@ -114,11 +114,16 @@ class TestPorPavimento:
     def test_clinicas_listadas_por_pavimento(self):
         painel = montar_visualizacao()
         todas = {
-            nome
+            c["nome"]
             for p in painel["por_pavimento"]
-            for nome in p["clinicas"]
+            for c in p["clinicas"]
         }
         assert todas == {"CARDIOLOGIA", "ORTOPEDIA", "PEDIATRIA"}
+        # Cada clínica traz sua própria linha de 10 turnos (a faixa da tela).
+        for p in painel["por_pavimento"]:
+            for c in p["clinicas"]:
+                assert len(c["alocado"]) == 10
+                assert len(c["nao_alocado"]) == 10
 
     def test_sem_sobra_nao_ha_demanda_nao_alocada_nem_alerta(self):
         # Cenário base: as três clínicas cabem inteiras — nenhum pavimento
@@ -173,7 +178,9 @@ class TestPorPavimento:
 
         painel = executar(rodar)
         afetado = next(
-            p for p in painel["por_pavimento"] if "CARDIOLOGIA" in p["clinicas"]
+            p
+            for p in painel["por_pavimento"]
+            if any(c["nome"] == "CARDIOLOGIA" for c in p["clinicas"])
         )
         assert afetado["total_nao_alocado"] == 5
         assert afetado["alertas"] == [

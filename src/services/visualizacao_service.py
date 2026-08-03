@@ -90,11 +90,29 @@ class VisualizacaoService:
 
             ocupacao = [0] * NUM_TURNOS
             nao_alocado = [0] * NUM_TURNOS
+            # Cada clínica deste bloco, com sua própria linha de 10 turnos — é o
+            # que a visualização desenha como faixa dentro do card do bloco.
+            clinicas = []
             for unidade in ocupantes:
+                c_alocado = [0] * NUM_TURNOS
+                c_nao_alocado = [0] * NUM_TURNOS
                 for item in unidade.resultados:
                     i = indice_turno(item.dia_semana, item.turno)
+                    c_alocado[i] = item.qtd_alocada
+                    c_nao_alocado[i] = item.qtd_nao_alocada
                     ocupacao[i] += item.qtd_alocada
                     nao_alocado[i] += item.qtd_nao_alocada
+                clinicas.append(
+                    {
+                        "nome": unidade.unidade_nome,
+                        "alocado": c_alocado,
+                        "nao_alocado": c_nao_alocado,
+                        "total_alocado": sum(c_alocado),
+                        "total_nao_alocado": sum(c_nao_alocado),
+                    }
+                )
+            # As com sobra primeiro — é o que o gestor precisa olhar; depois nome.
+            clinicas.sort(key=lambda c: (-c["total_nao_alocado"], c["nome"]))
 
             capacidade = pavimento.capacidade
             salas_por_turno = [pavimento.salas_em_uso(q) for q in ocupacao]
@@ -136,6 +154,11 @@ class VisualizacaoService:
             painel.append(
                 {
                     "id": pavimento.id,
+                    # `andar` agrupa os blocos (o "pavimento" do prédio); `bloco`
+                    # e `pavimento` são os rótulos curtos que a tela desenha.
+                    "andar": pavimento.andar,
+                    "bloco": pavimento.bloco,
+                    "pavimento": pavimento.nome,
                     "nome": pavimento.nome_completo,
                     "capacidade": capacidade,
                     "salas_abertas": pavimento.salas_abertas,
@@ -146,7 +169,7 @@ class VisualizacaoService:
                     "salas_no_pico": max(salas_por_turno) if salas_por_turno else 0,
                     "ocupacao_media_pct": self._pct(sum(ocupacao), capacidade * NUM_TURNOS),
                     "ocupacao_pico_pct": self._pct(pico, capacidade),
-                    "clinicas": [u.unidade_nome for u in ocupantes],
+                    "clinicas": clinicas,
                     "alertas": alertas,
                 }
             )

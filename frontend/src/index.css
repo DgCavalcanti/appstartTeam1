@@ -5,12 +5,14 @@
 
   --color-paper-bg: #f4f3ef;
   --color-paper-text: #66615b;
-  --color-paper-sidebar: #424242;
-  --color-paper-active-link: #5a5a5a; /* Light Gray for active link */
+  --color-paper-sidebar: #3b4078; /* Indigo */
+  --color-paper-active-link: #565cab; /* Lighter indigo for active link */
+  --color-paper-accent: #565cab; /* Indigo accent — barras/detalhes */
+  --color-paper-line: #e5e6f2; /* Borda hairline índigo dos cards */
 
   /* Default */
-  --color-paper-default: #66615b;
-  --color-paper-default-hover: #55504a;
+  --color-paper-default: #6468b8; /* Indigo */
+  --color-paper-default-hover: #565aa6;
 
   /* Primary */
   --color-paper-primary: #7a9e9f;
@@ -34,7 +36,7 @@
 
   --color-paper-disabled: #E0E0E0; /* Light Gray */
 
-  --shadow-paper: 0 2px 2px 0 rgba(204, 197, 185, 0.5);
+  --shadow-paper: 0 2px 4px 0 rgba(59, 64, 120, 0.14); /* Sombra com leve tom índigo */
 
   /* Animations */
   --animate-fade-in-up: fadeInUp 0.4s ease-out both;
@@ -115,7 +117,7 @@
   }
 
   .form-control {
-    @apply block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-paper-primary focus:border-paper-primary sm:text-sm transition-all duration-200;
+    @apply block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-paper-accent focus:border-paper-accent sm:text-sm transition-all duration-200;
   }
 
   .form-control-icon {
@@ -150,14 +152,14 @@
 
   /* Smooth focus ring for interactive elements */
   *:focus-visible {
-    outline: 2px solid var(--color-paper-primary);
+    outline: 2px solid var(--color-paper-accent);
     outline-offset: 2px;
     border-radius: 4px;
   }
 
   /* Improved selection color */
   ::selection {
-    background-color: rgba(122, 158, 159, 0.25);
+    background-color: rgba(86, 92, 171, 0.22);
     color: inherit;
   }
 }

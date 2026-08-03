@@ -1,5 +1,5 @@
 <template>
-  <nav class="bg-white rounded-lg shadow-paper p-4">
+  <nav class="bg-white rounded-lg border border-paper-line shadow-paper p-4">
     <ol class="flex flex-wrap gap-2">
       <li v-for="(etapa, idx) in etapas" :key="etapa.numero" class="flex-1 min-w-[8.5rem] flex items-stretch">
         <button

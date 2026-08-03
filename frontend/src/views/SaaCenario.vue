@@ -1,5 +1,5 @@
 <template>
-  <div v-if="erroFatal" class="bg-white rounded-lg shadow-paper p-6">
+  <div v-if="erroFatal" class="bg-white rounded-lg border border-paper-line shadow-paper p-6">
     <p class="text-paper-danger">{{ erroFatal }}</p>
     <router-link to="/saa/importacao" class="text-paper-info hover:underline text-sm">
       voltar ao histórico
@@ -8,7 +8,7 @@
 
   <div v-else-if="cenario" class="space-y-6 animate-fade-in-up">
     <!-- Cabeçalho -->
-    <section class="bg-white rounded-lg shadow-paper p-6 flex flex-wrap items-start justify-between gap-4 transition-shadow duration-300 hover:shadow-md">
+    <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 flex flex-wrap items-start justify-between gap-4 transition-shadow duration-300 hover:shadow-md">
       <div>
         <h2 class="text-lg font-semibold text-paper-text">{{ cenario.nome }}</h2>
         <p class="text-sm text-gray-500 mt-1">
@@ -45,7 +45,7 @@
     </div>
 
     <!-- ── Etapa 1 ─────────────────────────────────────────────────────── -->
-    <section v-if="etapaAtual === 1" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section v-if="etapaAtual === 1" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Importação</h3>
       <p class="text-sm text-gray-500">
         As grades deste cenário vieram do AGHU e já foram tratadas. Para importar
@@ -58,7 +58,7 @@
     </section>
 
     <!-- ── Etapa 2 — grades ────────────────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 2" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section v-else-if="etapaAtual === 2" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Validar e ajustar grades</h3>
       <p class="text-sm text-gray-500 mb-4">
         Nº de grades por unidade em cada dia/turno. O ajuste é soberano: pode
@@ -94,23 +94,59 @@
     </section>
 
     <!-- ── Etapa 3 — panorama de salas ─────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 3" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section v-else-if="etapaAtual === 3" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Panorama de salas</h3>
       <p class="text-sm text-gray-500 mb-4">
         Quantas salas de cada tipo há em cada pavimento. A capacidade em estações
         é calculada — uma sala de 2 estações vale 2. Salas fechadas não contam.
       </p>
 
-      <PlanilhaEditavel
-        :colunas="colunasPanorama"
-        :linhas="panorama"
-        :rodape="rodapePanorama"
-        @editar="editarPanorama"
-      />
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="text-xs text-gray-500 border-b border-gray-200">
+              <th class="text-left py-2 pr-3 font-medium">Pavimento</th>
+              <th class="px-2 font-medium text-center">Padrão<br />1 est.</th>
+              <th class="px-2 font-medium text-center">Padrão<br />2 est.</th>
+              <th class="px-2 font-medium text-center">Espec.<br />1 est.</th>
+              <th class="px-2 font-medium text-center">Espec.<br />2 est.</th>
+              <th class="px-2 font-medium text-center">Fechadas</th>
+              <th class="pl-3 font-medium text-right">Estações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="(p, i) in panorama" :key="p.id">
+              <tr v-if="mudaDeAndar(i)" class="bg-gray-50">
+                <td colspan="7" class="py-1 pr-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Pavimento {{ p.andar || '—' }}
+                </td>
+              </tr>
+              <tr class="border-b border-gray-100">
+                <td class="py-1.5 pr-3 text-paper-text whitespace-nowrap">{{ p.nome_completo }}</td>
+                <td v-for="campo in CAMPOS_SALA" :key="campo" class="px-1 text-center">
+                  <input
+                    type="number" min="0"
+                    :value="p[campo]"
+                    class="w-14 px-1 py-1 border border-gray-300 rounded text-sm text-center tabular-nums"
+                    @change="editarSala(p, campo, $event)"
+                  />
+                </td>
+                <td class="pl-3 text-right tabular-nums font-medium">{{ p.capacidade }}</td>
+              </tr>
+            </template>
+          </tbody>
+          <tfoot>
+            <tr class="text-sm">
+              <td colspan="6" class="pt-2 text-right text-gray-500">Total</td>
+              <td class="pt-2 pl-3 text-right tabular-nums font-semibold">{{ capacidadeTotal }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </section>
 
     <!-- ── Etapa 4 — restrições ────────────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 4" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section v-else-if="etapaAtual === 4" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Obrigatoriedades e preferências</h3>
       <p class="text-sm text-gray-500 mb-4">
         <strong>Obrigatória</strong> é uma trava: a clínica vai para aquele
@@ -190,7 +226,7 @@
     </section>
 
     <!-- ── Etapa 5 — executar ──────────────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 5" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section v-else-if="etapaAtual === 5" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Executar a alocação</h3>
       <p class="text-sm text-gray-500 mb-4">
         Cada clínica é alocada inteira num pavimento, para a semana toda. O que
@@ -231,7 +267,7 @@
     </section>
 
     <!-- ── Etapa 6 — ajustes manuais ───────────────────────────────────── -->
-    <section v-else-if="etapaAtual === 6" class="bg-white rounded-lg shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+    <section v-else-if="etapaAtual === 6" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Ajustes manuais</h3>
       <p class="text-sm text-gray-500 mb-4">
         Edite quantas grades cada clínica atende em cada turno. A demanda é fixa —
@@ -263,6 +299,7 @@ import { useRoute } from 'vue-router';
 import FiltroAlocacao from '../components/FiltroAlocacao.vue';
 import PlanilhaEditavel, { type Alteracao, type Coluna } from '../components/PlanilhaEditavel.vue';
 import Stepper, { type EtapaResumo } from '../components/Stepper.vue';
+import { rotuloTurno } from '../utils/turno';
 import api from '../services/api';
 
 const route = useRoute();
@@ -283,10 +320,6 @@ const nova = ref({ unidade_id: 0, pavimento_id: 0, tipo: 'obrigatorio', salvarCo
 /** Pavimentos do catálogo (com id), só para casar com o pavimento deste cenário. */
 const catalogoPavimentos = ref<any[]>([]);
 
-const ABREV: Record<string, string> = {
-  segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui', sexta: 'Sex',
-};
-
 const clinicasAtivas = computed(
   () => (cenario.value?.unidades ?? []).filter((u: any) => u.participa).length
 );
@@ -297,7 +330,7 @@ const turnos = computed<{ dia: string; periodo: string }[]>(() => cenario.value?
 const colunasTurno = computed<Coluna[]>(() =>
   turnos.value.map((t, i) => ({
     chave: `t${i}`,
-    rotulo: `${ABREV[t.dia] ?? t.dia}${t.periodo === 'manha' ? 'M' : 'T'}`,
+    rotulo: rotuloTurno(t),
     editavel: true,
   }))
 );
@@ -378,25 +411,30 @@ function realceGrade(linha: Record<string, any>): string {
 
 // ── Etapa 3 ────────────────────────────────────────────────────────────────
 
-const colunasPanorama: Coluna[] = [
-  // A lista já vem agrupada por andar (pavimento 1 e seus blocos, depois
-  // pavimento 2 e os seus...) — a coluna só torna esse agrupamento visível.
-  { chave: 'andar', rotulo: 'Andar', largura: '4rem' },
-  { chave: 'nome_completo', rotulo: 'Pavimento', largura: '16rem' },
-  { chave: 'padrao_1est', rotulo: 'Padrão 1 est.', editavel: true },
-  { chave: 'padrao_2est', rotulo: 'Padrão 2 est.', editavel: true },
-  { chave: 'esp_1est', rotulo: 'Espec. 1 est.', editavel: true },
-  { chave: 'esp_2est', rotulo: 'Espec. 2 est.', editavel: true },
-  { chave: 'fechada', rotulo: 'Fechadas', editavel: true },
-  { chave: 'salas_abertas', rotulo: 'Salas' },
-  { chave: 'capacidade', rotulo: 'Estações' },
-];
+/** Os quatro tipos de sala que entram na capacidade, mais as fechadas. */
+const CAMPOS_SALA = ['padrao_1est', 'padrao_2est', 'esp_1est', 'esp_2est', 'fechada'] as const;
 
-const rodapePanorama = computed(() => ({
-  nome_completo: 'Total',
-  salas_abertas: panorama.value.reduce((s, p) => s + p.salas_abertas, 0),
-  capacidade: capacidadeTotal.value,
-}));
+/**
+ * A lista já vem agrupada por andar (pavimento 1 e seus blocos, depois
+ * pavimento 2 e os seus...); aqui só decidimos onde começa cada grupo,
+ * comparando com o pavimento anterior — como na tela de Importação.
+ */
+function mudaDeAndar(indice: number): boolean {
+  if (indice === 0) return true;
+  return panorama.value[indice].andar !== panorama.value[indice - 1].andar;
+}
+
+/** Edição de uma contagem de salas no panorama, persistindo na hora. */
+function editarSala(p: any, campo: string, evento: Event) {
+  const alvo = evento.target as HTMLInputElement;
+  const valor = Number(alvo.value);
+  if (!Number.isFinite(valor) || valor < 0) {
+    alvo.value = String(p[campo] ?? 0); // valor inválido: devolve ao que estava
+    return;
+  }
+  if (valor === p[campo]) return;
+  editarPanorama({ linha: p, chave: campo, valor });
+}
 
 // ── Etapas 5 e 6 ───────────────────────────────────────────────────────────
 
