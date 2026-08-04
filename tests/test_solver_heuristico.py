@@ -354,6 +354,210 @@ class TestPreferencia:
 
 
 # ---------------------------------------------------------------------------
+# Cenário 4 (Fase 2) — equilíbrio proporcional
+# ---------------------------------------------------------------------------
+
+
+class TestEquilibrioProporcional:
+    """
+    Nível 4/5 da hierarquia: sem obrigatoriedade nem afinidade em jogo, o
+    motor deve espalhar a carga proporcionalmente à capacidade, não
+    concentrar num pavimento até estourar antes de abrir outro (causa raiz
+    diagnosticada na Fase 1 em `_folga_residual` como desempate principal).
+    """
+
+    def test_nao_concentra_com_capacidades_iguais(self):
+        # 6 clínicas de 6 (36/turno) em 3 pavimentos de 20 (60 de capacidade
+        # total): cabe tudo sem sobra. A distribuição proporcional ideal é
+        # 12/12/12 (60% em cada) — nunca um pavimento vazio com os outros
+        # apertados.
+        clinicas = tuple(
+            Clinica(id=i, nome=f"C{i}", demanda=demanda_uniforme(6))
+            for i in range(1, 7)
+        )
+        pavimentos = tuple(
+            Pavimento(id=i, nome=f"P{i}", capacidade=20) for i in range(1, 4)
+        )
+
+        resultado = resolver(clinicas=clinicas, pavimentos=pavimentos)
+
+        assert resultado.total_nao_alocado == 0
+        ocupacoes = [p.ocupacao_media for p in resultado.por_pavimento]
+        assert min(ocupacoes) > 0.0, (
+            "nenhum pavimento pode ficar vazio quando dá para espalhar a carga"
+        )
+        assert max(ocupacoes) - min(ocupacoes) < 0.05
+
+    def test_obrigatoriedade_concentradora_nao_desequilibra_o_resto(self):
+        # Duas clínicas presas no mesmo pavimento (obrigatoriedade, nível 1) —
+        # as demais, livres, ainda devem se equilibrar entre os pavimentos
+        # restantes em vez de amontoar tudo num só.
+        clinicas = tuple(
+            Clinica(id=i, nome=f"C{i}", demanda=demanda_uniforme(5))
+            for i in range(1, 7)
+        )
+        pavimentos = tuple(
+            Pavimento(id=i, nome=f"P{i}", capacidade=15) for i in range(1, 4)
+        )
+
+        resultado = resolver(
+            clinicas=clinicas, pavimentos=pavimentos, obrigatorias={1: 1, 2: 1}
+        )
+
+        assert resultado.total_nao_alocado == 0
+        ocupacoes = {p.pavimento_id: p.ocupacao_media for p in resultado.por_pavimento}
+        # Os dois pavimentos livres (2 e 3) devem ficar igualmente ocupados.
+        assert abs(ocupacoes[2] - ocupacoes[3]) < 0.05
+
+    def test_preferencia_vence_equilibrio_mas_nao_afunda_o_resto(self):
+        # Nível 3 (afinidade) decide antes do nível 4 (equilíbrio): o
+        # pavimento preferido enche primeiro. Mas as clínicas que não
+        # couberam lá devem se equilibrar entre os pavimentos restantes —
+        # não amontoar todas no primeiro que sobrar.
+        clinicas = tuple(
+            Clinica(id=i, nome=f"C{i}", demanda=demanda_uniforme(5))
+            for i in range(1, 7)
+        )
+        pavimentos = tuple(
+            Pavimento(id=i, nome=f"P{i}", capacidade=15) for i in range(1, 4)
+        )
+        afinidade = {(i, 1): 1.0 for i in range(1, 7)}
+
+        resultado = resolver(
+            clinicas=clinicas, pavimentos=pavimentos, afinidade=afinidade
+        )
+
+        assert resultado.total_nao_alocado == 0
+        ocupacoes = {p.pavimento_id: p.ocupacao_media for p in resultado.por_pavimento}
+        # P1 (preferido) fica cheio — cabem 3 das 6 clínicas de 5 estações.
+        assert ocupacoes[1] == pytest.approx(1.0)
+        # As 3 restantes (2 e 1) se dividem entre P2 e P3: nenhum fica vazio.
+        assert min(ocupacoes[2], ocupacoes[3]) > 0.0
+
+    def test_pavimento_de_capacidade_zero_nunca_recebe_clinica(self):
+        clinicas = tuple(
+            Clinica(id=i, nome=f"C{i}", demanda=demanda_uniforme(4))
+            for i in range(1, 3)
+        )
+        pavimentos = (
+            Pavimento(id=1, nome="Ativo", capacidade=20),
+            Pavimento(id=2, nome="Fechado", capacidade=0),
+        )
+
+        resultado = resolver(clinicas=clinicas, pavimentos=pavimentos)
+
+        assert resultado.total_nao_alocado == 0
+        assert all(r.pavimento_id == 1 for r in resultado.por_clinica)
+        ocupacao_fechado = next(
+            p for p in resultado.por_pavimento if p.pavimento_id == 2
+        )
+        assert sum(ocupacao_fechado.ocupacao) == 0
+
+
+# ---------------------------------------------------------------------------
+# Cenário 5 (Fase 2) — preservação da alocação atual (nível 6)
+# ---------------------------------------------------------------------------
+
+
+class TestPreservacaoDaAlocacaoAtual:
+    """
+    Nível 6: preferência de estabilidade, a de menor prioridade — só desempata
+    quando sobra, afinidade e equilíbrio proporcional já empataram entre si.
+    """
+
+    def test_alocacao_atual_desempata_entre_solucoes_igualmente_boas(self):
+        # Cenário simétrico: 4 clínicas idênticas, 2 pavimentos idênticos —
+        # qualquer par de 2+2 é igualmente ótimo nos níveis 1 a 5. A
+        # alocação atual deve decidir qual par vence.
+        clinicas = tuple(
+            Clinica(id=i, nome=f"C{i}", demanda=demanda_uniforme(5))
+            for i in range(1, 5)
+        )
+        pavimentos = (
+            Pavimento(id=1, nome="P1", capacidade=10),
+            Pavimento(id=2, nome="P2", capacidade=10),
+        )
+        # A "atual" já tem 1,2 no P2 e 3,4 no P1 — o oposto do que a colocação
+        # gulosa (sem estabilidade) tenderia a escolher pela ordem natural.
+        atual = {1: 2, 2: 2, 3: 1, 4: 1}
+
+        resultado = resolver(
+            clinicas=clinicas, pavimentos=pavimentos, alocacao_atual=atual
+        )
+
+        assert resultado.total_nao_alocado == 0
+        assert resultado.pavimento_da_clinica(1) == 2
+        assert resultado.pavimento_da_clinica(2) == 2
+        assert resultado.pavimento_da_clinica(3) == 1
+        assert resultado.pavimento_da_clinica(4) == 1
+        assert resultado.clinicas_movidas == 0
+
+    def test_alocacao_atual_nunca_gera_sobra_nem_sobrepoe_afinidade(self):
+        # A estabilidade é a última prioridade: se a clínica preferida por
+        # afinidade não é onde ela está hoje, a afinidade (nível 3) ainda
+        # vence sobre a estabilidade (nível 6).
+        clinica = Clinica(id=1, nome="Dermatologia", demanda=demanda_uniforme(4))
+        pav_a = Pavimento(id=1, nome="A", capacidade=10)
+        pav_b = Pavimento(id=2, nome="B", capacidade=10)
+
+        resultado = resolver(
+            clinicas=(clinica,),
+            pavimentos=(pav_a, pav_b),
+            afinidade={(1, pav_b.id): 1.0},
+            alocacao_atual={1: pav_a.id},
+        )
+
+        assert resultado.pavimento_da_clinica(1) == pav_b.id
+        assert resultado.total_nao_alocado == 0
+
+    def test_clinica_obrigatoria_ignora_alocacao_atual_diferente(self):
+        # A obrigatoriedade (nível 1) nunca cede — nem para a estabilidade.
+        clinica = Clinica(id=1, nome="Presa", demanda=demanda_uniforme(5))
+        pav_a = Pavimento(id=1, nome="A", capacidade=10)
+        pav_b = Pavimento(id=2, nome="B", capacidade=10)
+
+        resultado = resolver(
+            clinicas=(clinica,),
+            pavimentos=(pav_a, pav_b),
+            obrigatorias={1: pav_a.id},
+            alocacao_atual={1: pav_b.id},
+        )
+
+        assert resultado.pavimento_da_clinica(1) == pav_a.id
+
+    def test_alocacao_atual_referenciando_pavimento_inexistente_e_ignorada(self):
+        # Defensivo: se o mapa trouxer um pavimento que não existe mais na
+        # entrada, o motor não pode quebrar — trata como "sem preferência".
+        clinica = Clinica(id=1, nome="C1", demanda=demanda_uniforme(4))
+        pavimento = Pavimento(id=1, nome="P1", capacidade=10)
+
+        resultado = resolver(
+            clinicas=(clinica,),
+            pavimentos=(pavimento,),
+            alocacao_atual={1: 999},
+        )
+
+        assert resultado.pavimento_da_clinica(1) == 1
+        assert resultado.total_nao_alocado == 0
+
+    def test_resultado_e_deterministico_com_alocacao_atual(self):
+        clinicas = tuple(
+            Clinica(id=i, nome=f"C{i}", demanda=demanda_uniforme(5))
+            for i in range(1, 5)
+        )
+        pavimentos = (
+            Pavimento(id=1, nome="P1", capacidade=10),
+            Pavimento(id=2, nome="P2", capacidade=10),
+        )
+        atual = {1: 2, 2: 2, 3: 1, 4: 1}
+
+        primeira = resolver(clinicas=clinicas, pavimentos=pavimentos, alocacao_atual=atual)
+        segunda = resolver(clinicas=clinicas, pavimentos=pavimentos, alocacao_atual=atual)
+
+        assert primeira == segunda
+
+
+# ---------------------------------------------------------------------------
 # Invariantes gerais
 # ---------------------------------------------------------------------------
 

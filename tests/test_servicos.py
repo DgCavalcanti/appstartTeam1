@@ -678,6 +678,83 @@ class TestAlocacaoService:
         assert etapas[5] == PREENCHIDA
         assert status == EM_ANDAMENTO
 
+    def test_reexecucao_preserva_ajuste_manual_quando_a_solucao_empata(self):
+        # Fase 2, nível 6 da hierarquia: `alocacao_atual` vem de
+        # `pavimento_alocado_id`, e o motor não distingue se ele foi escrito
+        # por uma execução automática anterior ou por `mover()` (ajuste
+        # manual, etapa 6) — as duas são tratadas igual. Cenário simétrico:
+        # duas clínicas idênticas, dois pavimentos idênticos, sem afinidade —
+        # qualquer das duas alocações possíveis é igualmente ótima nos níveis
+        # 1 a 5. O gestor troca manualmente as duas de lugar; reexecutar não
+        # pode desfazer a troca, porque o resultado manual é tão bom quanto
+        # o automático e a estabilidade desempata a favor dele.
+        async def rodar(sessao):
+            pico = indice_turno("segunda", "manha")
+            clinicas = (
+                Clinica(id=1, nome="ALPHA", demanda=demanda_em([pico], 5)),
+                Clinica(id=2, nome="BETA", demanda=demanda_em([pico], 5)),
+            )
+            slots = tuple(
+                GradeSlot(f"Dr. {c.nome[:3]}", c.nome, "segunda", "manha")
+                for c in clinicas
+            )
+            demandas = tuple(
+                GradeDemanda(c.nome, "segunda", "manha", c.demanda[pico])
+                for c in clinicas
+            )
+            pavimentos = (
+                PavimentoEntrada(bloco="Bloco A", nome="Térreo", padrao_1est=5),
+                PavimentoEntrada(bloco="Bloco B", nome="Térreo", padrao_1est=5),
+            )
+
+            repo = AlocacaoRepository(sessao)
+            criado = await repo.criar(
+                nome="Simétrico",
+                clinicas=clinicas,
+                slots=slots,
+                demandas=demandas,
+                pavimentos=pavimentos,
+                resultado=None,
+            )
+            cenario_id = criado.id
+            await sessao.commit()
+            sessao.expunge_all()
+            cenario = await repo.obter(cenario_id)
+
+            servico = AlocacaoService(sessao)
+            await servico.executar(cenario)
+            await sessao.commit()
+
+            alpha = next(u for u in cenario.unidades if u.unidade_nome == "ALPHA")
+            beta = next(u for u in cenario.unidades if u.unidade_nome == "BETA")
+            pav_alpha_original = alpha.pavimento_alocado_id
+            pav_beta_original = beta.pavimento_alocado_id
+            assert pav_alpha_original != pav_beta_original
+
+            # Ajuste manual: troca as duas de pavimento.
+            await servico.mover(cenario, alpha.id, pav_beta_original)
+            await servico.mover(cenario, beta.id, pav_alpha_original)
+            await sessao.commit()
+
+            # Reexecuta o motor sobre o cenário já ajustado à mão.
+            await servico.executar(cenario)
+
+            return (
+                alpha.pavimento_alocado_id,
+                beta.pavimento_alocado_id,
+                pav_alpha_original,
+                pav_beta_original,
+            )
+
+        pav_alpha_depois, pav_beta_depois, pav_alpha_original, pav_beta_original = executar(
+            rodar
+        )
+        assert pav_alpha_depois == pav_beta_original, (
+            "a troca manual deveria sobreviver à reexecução — o motor não pode "
+            "desfazer um ajuste que é tão bom quanto o automático"
+        )
+        assert pav_beta_depois == pav_alpha_original
+
 
 # ---------------------------------------------------------------------------
 # Etapa 6 — ajustes manuais

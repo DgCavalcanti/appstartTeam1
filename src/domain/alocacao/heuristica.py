@@ -11,7 +11,8 @@ bem o mesmo pavimento.
 Cinco blocos, conforme a seção 8 do SAA_Arquitetura.pdf:
 
   1. Ingredientes — vetores de demanda, capacidades, obrigatoriedade, afinidade
-  2. Fila        — clínicas ordenadas pelo pico, da maior para a menor
+  2. Fila        — com preferência primeiro, depois sem; dentro de cada
+                   grupo, pelo pico (da maior para a menor)
   3. Colocação   — gulosa: cabe inteira? maior afinidade : menor estouro
   4. Melhoria    — MOVE/SWAP enquanto o placar melhorar
   5. Repartição  — a sobra de cada turno dividida proporcionalmente
@@ -139,14 +140,140 @@ def _folga_residual(
     """
     Capacidade que sobraria no pavimento depois de acomodar a clínica.
 
-    Menor folga = encaixe mais justo. Serve de desempate quando duas opções têm
-    a mesma afinidade: preferimos apertar um pavimento e deixar outro livre para
-    uma clínica grande que ainda virá.
+    Não é mais o desempate PRINCIPAL da colocação gulosa (ver
+    `_desvio_proporcional_pavimento`) porque "sempre apertar o mesmo pavimento
+    até estourar antes de abrir outro" é exatamente o padrão que concentrava a
+    ocupação em poucos pavimentos (diagnóstico da Fase 1). Mantido como
+    desempate de última instância (antes do id) para os raríssimos casos em
+    que afinidade E desvio proporcional empatam exatamente.
     """
     vetor = carga[pavimento.id]
     return sum(
         pavimento.capacidade - vetor[t] - clinica.demanda[t]
         for t in range(NUM_TURNOS)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Equilíbrio proporcional (níveis 4 e 5 da hierarquia de objetivos)
+# ---------------------------------------------------------------------------
+#
+# Carga-alvo proporcional: alvo_p,t = D_t · c_p / C, onde D_t é a demanda total
+# do turno t (todas as clínicas), c_p a capacidade do pavimento p e C a soma
+# das capacidades dos pavimentos ATIVOS (capacidade > 0). Pavimentos de
+# capacidade 0 nunca recebem clínica (comportamento preservado) e ficam fora
+# de C e de qualquer cálculo de taxa — mas continuam entrando no somatório de
+# desvio abaixo (defensivamente: se por algum motivo tiverem carga, isso pesa
+# contra a solução em vez de ser ignorado).
+#
+# Para evitar divisão (e o problema de c_p = 0 no denominador de uma "taxa"),
+# comparamos o desvio na forma sem fração: |L_p,t · C - D_t · c_p|. Isso é
+# equivalente, a menos de fator comum C > 0, a comparar |L_p,t/c_p - D_t/C|
+# quando c_p > 0, e evita qualquer divisão por zero.
+
+
+def _demanda_total_por_turno(clinicas: Iterable[Clinica]) -> list[int]:
+    """D_t — demanda de todas as clínicas do cenário, somada por turno."""
+    totais = [0] * NUM_TURNOS
+    for clinica in clinicas:
+        for t, q in enumerate(clinica.demanda):
+            totais[t] += q
+    return totais
+
+
+def _capacidade_ativa_total(pavimentos: Iterable[Pavimento]) -> int:
+    """C — soma das capacidades dos pavimentos ativos (capacidade > 0)."""
+    return sum(p.capacidade for p in pavimentos if p.capacidade > 0)
+
+
+def _desvio_proporcional_pavimento(
+    carga: Mapping[int, list[int]],
+    pavimento: Pavimento,
+    clinica: Clinica,
+    demanda_total_turno: Sequence[int],
+    capacidade_ativa_total: int,
+) -> int:
+    """
+    Quanto o pavimento se desviaria da carga-alvo proporcional se a clínica
+    entrasse agora — Σ_t |L_p,t·C - D_t·c_p| considerando só este pavimento.
+
+    Usado como desempate PRINCIPAL da colocação gulosa: entre pavimentos onde
+    a clínica cabe inteira e com a mesma afinidade, escolhe o que fica mais
+    perto do seu alvo proporcional em vez do que sobra menos espaço (que
+    concentraria tudo num pavimento só até ele estourar).
+    """
+    if capacidade_ativa_total == 0:
+        return 0
+    vetor = carga[pavimento.id]
+    total = 0
+    for t in range(NUM_TURNOS):
+        carga_t = vetor[t] + clinica.demanda[t]
+        total += abs(
+            carga_t * capacidade_ativa_total
+            - demanda_total_turno[t] * pavimento.capacidade
+        )
+    return total
+
+
+def _desvio_proporcional_total(
+    carga: Mapping[int, list[int]],
+    pavimentos: Iterable[Pavimento],
+    demanda_total_turno: Sequence[int],
+    capacidade_ativa_total: int,
+) -> int:
+    """Nível 4 do placar: Σ_{p,t} |L_p,t·C - D_t·c_p| na solução inteira."""
+    if capacidade_ativa_total == 0:
+        return 0
+    total = 0
+    for p in pavimentos:
+        vetor = carga[p.id]
+        for t in range(NUM_TURNOS):
+            total += abs(
+                vetor[t] * capacidade_ativa_total - demanda_total_turno[t] * p.capacidade
+            )
+    return total
+
+
+def _pior_desequilibrio_pontual(
+    carga: Mapping[int, list[int]],
+    pavimentos: Iterable[Pavimento],
+    demanda_total_turno: Sequence[int],
+    capacidade_ativa_total: int,
+) -> int:
+    """
+    Nível 5 do placar: maior |L_p,t·C - D_t·c_p| isolado entre todos os pares
+    pavimento/turno. Desempata DEPOIS do agregado (nível 4): duas soluções com
+    a mesma soma de desvio podem ter um pico muito pior num único turno, e essa
+    é a que preterimos.
+    """
+    if capacidade_ativa_total == 0:
+        return 0
+    pior = 0
+    for p in pavimentos:
+        vetor = carga[p.id]
+        for t in range(NUM_TURNOS):
+            desvio = abs(
+                vetor[t] * capacidade_ativa_total - demanda_total_turno[t] * p.capacidade
+            )
+            if desvio > pior:
+                pior = desvio
+    return pior
+
+
+def _clinicas_movidas(
+    atribuicao: Mapping[int, int], alocacao_atual: Mapping[int, int]
+) -> int:
+    """
+    Nível 6 do placar: nº de clínicas cujo pavimento na solução atual difere
+    de `alocacao_atual` (execução anterior OU ajuste manual — tratados de
+    forma uniforme, sem distinção). É preferência de estabilidade, a de MENOR
+    prioridade da hierarquia: só desempata depois de sobra, afinidade e
+    equilíbrio proporcional (níveis 2 a 5) já estarem decididos.
+    """
+    return sum(
+        1
+        for clinica_id, pavimento_id in alocacao_atual.items()
+        if clinica_id in atribuicao and atribuicao[clinica_id] != pavimento_id
     )
 
 
@@ -209,6 +336,12 @@ class SolverHeuristico:
 
         por_id = {c.id: c for c in entrada.clinicas}
 
+        # D_t e C para o desempate proporcional (nível 4/5) já na colocação
+        # inicial — evita que a gulosa concentre e deixe tudo para a melhoria
+        # desfazer depois.
+        demanda_total_turno = _demanda_total_por_turno(entrada.clinicas)
+        capacidade_ativa_total = _capacidade_ativa_total(entrada.pavimentos)
+
         # Bloco 1 — as obrigatórias vão direto ao seu pavimento e travam.
         # Elas entram antes de todo mundo, mesmo que estourem a capacidade.
         for clinica_id, pavimento_id in entrada.obrigatorias.items():
@@ -219,12 +352,22 @@ class SolverHeuristico:
                 "obrigatória: %s → pavimento %d", clinica.nome, pavimento_id
             )
 
-        # Bloco 2 — fila das livres por pico, do maior para o menor.
-        # Quem tem o turno mais cheio escolhe primeiro, porque é quem tem menos
-        # opções de encaixe. Empates caem para a demanda total e depois para o
-        # id, garantindo que a mesma entrada produza sempre a mesma saída.
+        # Bloco 2 — fila das livres: primeiro quem tem preferência declarada,
+        # depois quem não tem. Preferência já vence equilíbrio proporcional na
+        # hierarquia de objetivos (nível 3 > nível 4), então deixamos essas
+        # clínicas reservarem espaço no pavimento preferido antes que uma
+        # clínica sem preferência o preencha só por conveniência de encaixe.
+        # Dentro de cada grupo, mantém o critério de empacotamento original —
+        # pico decrescente, depois total, depois id — para não abrir mão da
+        # minimização de sobra (nível 2, que continua acima de preferência).
+        clinicas_com_preferencia = {
+            clinica_id for clinica_id, _pavimento_id in entrada.afinidade
+        }
         livres = [c for c in entrada.clinicas if c.id not in entrada.obrigatorias]
-        fila = sorted(livres, key=lambda c: (-c.pico, -c.total, c.id))
+        com_preferencia = [c for c in livres if c.id in clinicas_com_preferencia]
+        sem_preferencia = [c for c in livres if c.id not in clinicas_com_preferencia]
+        ordenar = lambda grupo: sorted(grupo, key=lambda c: (-c.pico, -c.total, c.id))
+        fila = ordenar(com_preferencia) + ordenar(sem_preferencia)
 
         # Bloco 3 — colocação gulosa.
         for clinica in fila:
@@ -233,12 +376,20 @@ class SolverHeuristico:
             ]
 
             if candidatos:
-                # Cabe inteira em algum lugar: manda para o de maior afinidade.
-                # Empate → encaixe mais justo (menor folga residual).
+                # Cabe inteira em algum lugar: manda para o de maior afinidade
+                # (nível 3). Empate → o que fica mais perto do seu alvo
+                # proporcional (níveis 4/5), não o que sobra menos espaço —
+                # senão a gulosa empurra sempre para o mesmo pavimento até
+                # estourar antes de considerar outro (causa raiz do
+                # desequilíbrio diagnosticada na Fase 1). Último desempate:
+                # folga residual e, por fim, id (determinismo).
                 escolhido = min(
                     candidatos,
                     key=lambda p: (
                         -self._afinidade(entrada, clinica.id, p.id),
+                        _desvio_proporcional_pavimento(
+                            carga, p, clinica, demanda_total_turno, capacidade_ativa_total
+                        ),
                         _folga_residual(carga, p, clinica),
                         p.id,
                     ),
@@ -273,8 +424,18 @@ class SolverHeuristico:
         """
         Busca local: aplica MOVE e SWAP enquanto o placar melhorar.
 
-        Placar lexicográfico: 1º menos sobra, 2º mais afinidade. Clínicas
-        obrigatórias nunca se movem.
+        Placar lexicográfico — cada nível só desempata quando todos os
+        anteriores empatam (tupla comparada em ordem, nunca soma de pesos):
+
+          nível 2 — sobra total (obrigatoriedades já fixaram o nível 1)
+          nível 3 — afinidade total, negada (mais afinidade = "menor")
+          nível 4 — desvio proporcional agregado Σ|L·C - D·c|
+          nível 5 — pior desequilíbrio pontual (maior desvio isolado)
+          nível 6 — nº de clínicas movidas em relação a `alocacao_atual`
+          nível 7 — desempate por id: não entra no placar; é garantido pela
+                     ordem determinística de iteração de `moveis`/`pavimentos`.
+
+        Clínicas obrigatórias nunca se movem.
         """
         por_id = {c.id: c for c in entrada.clinicas}
         moveis = [c for c in entrada.clinicas if c.id not in entrada.obrigatorias]
@@ -285,11 +446,20 @@ class SolverHeuristico:
         for clinica_id, pavimento_id in atribuicao.items():
             _somar(carga, pavimento_id, por_id[clinica_id])
 
-        def placar() -> tuple[int, float]:
-            # Minimizamos a tupla: sobra primeiro, afinidade negada depois.
+        demanda_total_turno = _demanda_total_por_turno(entrada.clinicas)
+        capacidade_ativa_total = _capacidade_ativa_total(entrada.pavimentos)
+
+        def placar() -> tuple[int, float, int, int, int]:
             return (
                 _sobra_total(carga, entrada.pavimentos),
                 -self._afinidade_total(entrada, atribuicao),
+                _desvio_proporcional_total(
+                    carga, entrada.pavimentos, demanda_total_turno, capacidade_ativa_total
+                ),
+                _pior_desequilibrio_pontual(
+                    carga, entrada.pavimentos, demanda_total_turno, capacidade_ativa_total
+                ),
+                _clinicas_movidas(atribuicao, entrada.alocacao_atual),
             )
 
         atual = placar()
@@ -363,6 +533,23 @@ class SolverHeuristico:
         por_clinica: list[ResultadoClinica] = []
         por_pavimento: list[OcupacaoPavimento] = []
 
+        # Indicadores dos níveis 4, 5 e 6 na solução final — calculados sobre a
+        # mesma carga final que gera `por_pavimento`, para relatar ao chamador
+        # (serviço/tela) o quão equilibrada e estável a solução ficou.
+        por_id = {c.id: c for c in entrada.clinicas}
+        carga_final = _carga_zerada(entrada.pavimentos)
+        for clinica_id, pavimento_id in atribuicao.items():
+            _somar(carga_final, pavimento_id, por_id[clinica_id])
+        demanda_total_turno = _demanda_total_por_turno(entrada.clinicas)
+        capacidade_ativa_total = _capacidade_ativa_total(entrada.pavimentos)
+        desvio_proporcional_total = _desvio_proporcional_total(
+            carga_final, entrada.pavimentos, demanda_total_turno, capacidade_ativa_total
+        )
+        pior_desequilibrio_pontual = _pior_desequilibrio_pontual(
+            carga_final, entrada.pavimentos, demanda_total_turno, capacidade_ativa_total
+        )
+        clinicas_movidas = _clinicas_movidas(atribuicao, entrada.alocacao_atual)
+
         for pavimento in entrada.pavimentos:
             ocupantes = [
                 c for c in entrada.clinicas if atribuicao[c.id] == pavimento.id
@@ -416,6 +603,9 @@ class SolverHeuristico:
         return ResultadoAlocacao(
             por_clinica=tuple(por_clinica),
             por_pavimento=tuple(por_pavimento),
+            desvio_proporcional_total=desvio_proporcional_total,
+            pior_desequilibrio_pontual=pior_desequilibrio_pontual,
+            clinicas_movidas=clinicas_movidas,
         )
 
     # -- Afinidade ---------------------------------------------------------

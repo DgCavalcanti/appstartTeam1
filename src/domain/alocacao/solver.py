@@ -34,12 +34,22 @@ class EntradaAlocacao:
         afinidade    — (clinica_id, pavimento_id) → nota. Quanto maior, mais a
                        clínica "quer" aquele pavimento. Combina a preferência
                        manual do gestor com o histórico. Ausente significa 0.
+        alocacao_atual — clinica_id → pavimento_id de onde a clínica está hoje
+                       (execução anterior do motor OU ajuste manual do gestor —
+                       tratados de forma uniforme). Usado só como preferência de
+                       estabilidade de MENOR prioridade (nível 6 da hierarquia de
+                       objetivos): entre soluções empatadas em sobra, afinidade e
+                       equilíbrio proporcional, o motor prefere mexer em menos
+                       clínicas. Nunca vira obrigatoriedade. Ausente/vazio
+                       significa "sem preferência de estabilidade para essa
+                       clínica" — não é erro.
     """
 
     clinicas: tuple[Clinica, ...]
     pavimentos: tuple[Pavimento, ...]
     obrigatorias: Mapping[int, int] = field(default_factory=dict)
     afinidade: Mapping[tuple[int, int], float] = field(default_factory=dict)
+    alocacao_atual: Mapping[int, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         ids_clinicas = {c.id for c in self.clinicas}
@@ -122,10 +132,25 @@ class OcupacaoPavimento:
 
 @dataclass(frozen=True)
 class ResultadoAlocacao:
-    """Resultado completo de uma execução do motor."""
+    """
+    Resultado completo de uma execução do motor.
+
+    Os três últimos campos são indicadores novos da Fase 2 — refletem os
+    níveis 4, 5 e 6 da hierarquia de objetivos do placar de melhoria
+    (heuristica.py, `_passada_de_melhoria`). Têm default para não quebrar quem
+    já constrói `ResultadoAlocacao` sem eles.
+    """
 
     por_clinica: tuple[ResultadoClinica, ...]
     por_pavimento: tuple[OcupacaoPavimento, ...]
+    #: Nível 4: Σ_{p,t} |L_p,t·C - D_t·c_p| na solução final — desvio agregado
+    #: da carga-alvo proporcional. Zero é equilíbrio perfeito.
+    desvio_proporcional_total: int = 0
+    #: Nível 5: maior |L_p,t·C - D_t·c_p| isolado — pior desequilíbrio pontual.
+    pior_desequilibrio_pontual: int = 0
+    #: Nível 6: nº de clínicas cujo pavimento final difere de
+    #: `EntradaAlocacao.alocacao_atual` (execução anterior ou ajuste manual).
+    clinicas_movidas: int = 0
 
     @property
     def total_nao_alocado(self) -> int:

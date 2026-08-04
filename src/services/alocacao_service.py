@@ -116,11 +116,28 @@ class AlocacaoService:
                     afinidade.get(chave, 0.0) + PESO_PREFERENCIA_MANUAL
                 )
 
+        # `alocacao_atual` alimenta o nível 6 (menor prioridade) da hierarquia
+        # de objetivos do motor: preferência de estabilidade, nunca trava. Vem
+        # de `pavimento_alocado_id`, que tanto uma execução automática anterior
+        # quanto um ajuste manual (`mover()`, etapa 6) escrevem da mesma forma —
+        # o motor não distingue a origem, como pedido. Uma unidade sem pavimento
+        # alocado (nunca rodou) ou cujo pavimento não existe mais no cenário
+        # simplesmente fica de fora do mapa: "sem preferência de estabilidade",
+        # não erro.
+        ids_pavimentos = {p.id for p in pavimentos}
+        alocacao_atual: dict[int, int] = {
+            unidade.id: unidade.pavimento_alocado_id
+            for unidade in participantes
+            if unidade.pavimento_alocado_id is not None
+            and unidade.pavimento_alocado_id in ids_pavimentos
+        }
+
         return EntradaAlocacao(
             clinicas=tuple(clinicas),
             pavimentos=pavimentos,
             obrigatorias=obrigatorias,
             afinidade=afinidade,
+            alocacao_atual=alocacao_atual,
         )
 
     async def _gravar(self, cenario: Alocacao, resultado: ResultadoAlocacao) -> None:

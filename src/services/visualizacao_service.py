@@ -254,8 +254,13 @@ class VisualizacaoService:
             "salas_no_pico": salas_no_pico,
             "salas_totais": salas_totais,
             "pavimentos_com_alerta": sum(1 for p in por_pavimento if p["alertas"]),
-            "ocupacao_media_pct": self._media(
-                [p["ocupacao_media_pct"] for p in usados]
+            # Ponderada por capacidade (Fase 2), não média aritmética simples
+            # dos pavimentos usados: um pavimento de 40 estações a 90% pesa
+            # mais no indicador geral do que um de 5 estações a 90% — média
+            # simples tratava os dois como iguais e escondia desequilíbrio.
+            "ocupacao_media_pct": self._pct(
+                sum(sum(p["ocupacao"]) for p in usados),
+                sum(p["capacidade"] for p in usados) * NUM_TURNOS,
             ),
         }
 
@@ -268,7 +273,3 @@ class VisualizacaoService:
     @staticmethod
     def _pct(parte: int, total: int) -> float:
         return round(100 * parte / total, 1) if total else 0.0
-
-    @staticmethod
-    def _media(valores: list[float]) -> float:
-        return round(sum(valores) / len(valores), 1) if valores else 0.0

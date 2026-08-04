@@ -44,6 +44,14 @@
       {{ erro }}
     </div>
 
+    <div v-if="etapaAtual !== 5 && statusEtapaAtual !== 'preenchida'" class="flex justify-end">
+      <button
+        class="text-xs text-paper-info hover:underline disabled:text-gray-400"
+        :disabled="ocupado"
+        @click="confirmarEtapa"
+      >Marcar esta etapa como preenchida, sem alterar nada</button>
+    </div>
+
     <!-- ── Etapa 1 ─────────────────────────────────────────────────────── -->
     <section v-if="etapaAtual === 1" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-lg font-semibold text-paper-text mb-1">Importação</h3>
@@ -379,7 +387,7 @@
                     class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 cursor-grab active:cursor-grabbing hover:bg-gray-200 select-none"
                     :class="arrastandoId === c.id ? 'opacity-40' : ''"
                     :title="`${c.nome} · ${somaDemanda(c)} grades`"
-                    @dragstart="arrastandoId = c.id"
+                    @dragstart="aoIniciarArraste($event, c.id)"
                     @dragend="aoTerminarArraste"
                   >{{ c.nome }}</span>
                   <span v-if="!b.clinicas.length" class="text-xs text-gray-400 italic py-1">
@@ -429,6 +437,9 @@ const clinicasAtivas = computed(
   () => (cenario.value?.unidades ?? []).filter((u: any) => u.participa).length
 );
 const etapaAtual = computed(() => cenario.value?.etapa_atual ?? 1);
+const statusEtapaAtual = computed(
+  () => etapas.value.find(e => e.numero === etapaAtual.value)?.status
+);
 const turnos = computed<{ dia: string; periodo: string }[]>(() => cenario.value?.turnos ?? []);
 
 /** As 10 colunas de turno, comuns às etapas 2, 5 e 6. */
@@ -692,6 +703,20 @@ const conflitos = computed(() => {
 const arrastandoId = ref<number | null>(null);
 const sobreId = ref<number | null>(null);
 
+/**
+ * Inicia o arrasto de um chip. O HTML5 drag-and-drop exige `setData` dentro
+ * do `dragstart` para a sessão de arraste realmente começar — sem isso o
+ * Firefox (e, em certas condições, navegadores baseados em Chromium) recusa
+ * iniciar o arraste e nada acontece visualmente.
+ */
+function aoIniciarArraste(evento: DragEvent, unidadeId: number) {
+  arrastandoId.value = unidadeId;
+  if (evento.dataTransfer) {
+    evento.dataTransfer.effectAllowed = 'move';
+    evento.dataTransfer.setData('text/plain', String(unidadeId));
+  }
+}
+
 function aoSairDoCard(pavimentoId: number) {
   if (sobreId.value === pavimentoId) sobreId.value = null;
 }
@@ -779,6 +804,17 @@ watch(cenarioId, carregar);
 async function irPara(numero: number) {
   await comErro(async () => {
     const { data } = await api.post(`/api/cenarios/${cenarioId.value}/etapas/${numero}`);
+    etapas.value = data.etapas;
+    cenario.value = { ...cenario.value, etapa_atual: data.etapa_atual };
+  });
+}
+
+/** Confirma a etapa atual sem alterar dado nenhum (etapa 5 fica de fora). */
+async function confirmarEtapa() {
+  await comErro(async () => {
+    const { data } = await api.post(
+      `/api/cenarios/${cenarioId.value}/etapas/${etapaAtual.value}/confirmar`
+    );
     etapas.value = data.etapas;
     cenario.value = { ...cenario.value, etapa_atual: data.etapa_atual };
   });

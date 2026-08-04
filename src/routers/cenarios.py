@@ -33,6 +33,7 @@ from src.repositories import (
 from src.resources.database import get_app_db_session
 from src.services import (
     AlocacaoService,
+    ETAPA_EXECUCAO,
     GradesService,
     PanoramaService,
     ProcessoService,
@@ -459,6 +460,38 @@ async def ir_para_etapa(
     processo = ProcessoService(sessao)
     try:
         await processo.ir_para(cenario, numero)
+    except ValueError as erro:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
+    await sessao.commit()
+    return {"etapa_atual": cenario.etapa_atual, "etapas": processo.resumo(cenario)}
+
+
+@router.post(
+    "/{cenario_id}/etapas/{numero}/confirmar",
+    summary="Marcar uma etapa como preenchida, sem alterar nada",
+)
+async def confirmar_etapa(
+    cenario_id: int, numero: int, sessao: AsyncSession = Depends(get_app_db_session)
+):
+    """
+    Confirma que o gestor revisou a etapa e não há nada a mudar.
+
+    Normalmente uma etapa só vira "preenchida" como efeito colateral de uma
+    edição real (grade, panorama, restrição...). Isso deixa o gestor sem
+    saída quando revisa e decide que está tudo certo como está. Este endpoint
+    cobre esse caso — exceto para a etapa 5, cujo status "preenchida" tem um
+    significado específico (o motor rodou) do qual `concluir()` e a tela de
+    visualização dependem; ela só pode ser preenchida executando o algoritmo.
+    """
+    if numero == ETAPA_EXECUCAO:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "a etapa 5 só fica preenchida executando a alocação",
+        )
+    cenario = await _carregar(sessao, cenario_id)
+    processo = ProcessoService(sessao)
+    try:
+        await processo.registrar_alteracao(cenario, numero)
     except ValueError as erro:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
     await sessao.commit()

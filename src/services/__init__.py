@@ -8,7 +8,7 @@ transição entre as 6 etapas. Não fala HTTP e não escreve SQL.
 from src.services.alocacao_service import AlocacaoService
 from src.services.grades_service import GradesService
 from src.services.panorama_service import PanoramaService
-from src.services.processo_service import ProcessoService
+from src.services.processo_service import ETAPA_EXECUCAO, ProcessoService
 from src.services.restricoes_service import (
     RestricoesService,
     pesos_do_motor,
@@ -18,6 +18,7 @@ from src.services.visualizacao_service import VisualizacaoService
 
 __all__ = [
     "AlocacaoService",
+    "ETAPA_EXECUCAO",
     "GradesService",
     "PanoramaService",
     "ProcessoService",
