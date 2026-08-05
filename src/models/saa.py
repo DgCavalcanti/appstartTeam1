@@ -145,6 +145,14 @@ class AlocacaoUnidade(Base):
     )
     unidade_nome: Mapped[str] = mapped_column(String(200), nullable=False)
     participa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: Restrição RÍGIDA marcada manualmente pelo gestor (etapa 2): a clínica só
+    #: pode ocupar sala ESPECIALIZADA. Mesmo peso de obrigatoriedade de
+    #: pavimento — nunca aloca numa sala padrão, pode gerar sobra se não houver
+    #: especializada suficiente. Default False preserva o comportamento de
+    #: quem nunca marcou nada.
+    precisa_sala_especializada: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     pavimento_alocado_id: Mapped[int | None] = mapped_column(
         ForeignKey("pavimento.id", ondelete="SET NULL"), nullable=True
     )
@@ -205,6 +213,34 @@ class Pavimento(Base):
         return capacidade_em_estacoes(
             padrao_1est=self.padrao_1est,
             padrao_2est=self.padrao_2est,
+            esp_1est=self.esp_1est,
+            esp_2est=self.esp_2est,
+        )
+
+    @property
+    def capacidade_padrao(self) -> int:
+        """
+        Estações só das salas PADRÃO (padrao_1est/padrao_2est).
+
+        É o que o motor de alocação usa como capacidade do pool "padrao" deste
+        pavimento (ver `src.domain.entidades.capacidade_do_pool`) — as
+        estações especializadas ficam de fora de propósito, pois são
+        reservadas, não um pool compartilhado.
+        """
+        return capacidade_em_estacoes(
+            padrao_1est=self.padrao_1est,
+            padrao_2est=self.padrao_2est,
+        )
+
+    @property
+    def capacidade_especializada(self) -> int:
+        """
+        Estações só das salas ESPECIALIZADAS (esp_1est/esp_2est).
+
+        Capacidade do pool "especializada" deste pavimento — reservado às
+        clínicas com `precisa_sala_especializada=True`.
+        """
+        return capacidade_em_estacoes(
             esp_1est=self.esp_1est,
             esp_2est=self.esp_2est,
         )

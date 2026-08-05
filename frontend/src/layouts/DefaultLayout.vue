@@ -43,6 +43,28 @@
           <span class="whitespace-nowrap md:hidden md:group-hover/side:inline">1 — Importação</span>
         </router-link>
 
+        <button
+          type="button"
+          :disabled="indoParaAtual"
+          class="sidebar-link w-full flex items-center gap-2 py-2.5 px-4 rounded transition-all duration-200 hover:bg-paper-active-link hover:text-white relative md:justify-center md:group-hover/side:justify-start disabled:opacity-50"
+          @click="irParaAlocacaoAtual"
+        >
+          <span class="sidebar-indicator absolute left-0 top-1/2 -translate-y-1/2 w-1 h-0 bg-paper-primary rounded-r transition-all duration-200"></span>
+          <ChartBarIcon class="h-5 w-5 shrink-0" />
+          <span class="whitespace-nowrap md:hidden md:group-hover/side:inline">
+            {{ indoParaAtual ? 'Abrindo…' : 'Alocação atual' }}
+          </span>
+        </button>
+
+        <router-link
+          to="/saa/historico"
+          class="sidebar-link flex items-center gap-2 py-2.5 px-4 rounded transition-all duration-200 hover:bg-paper-active-link hover:text-white relative md:justify-center md:group-hover/side:justify-start"
+        >
+          <span class="sidebar-indicator absolute left-0 top-1/2 -translate-y-1/2 w-1 h-0 bg-paper-primary rounded-r transition-all duration-200"></span>
+          <ClockIcon class="h-5 w-5 shrink-0" />
+          <span class="whitespace-nowrap md:hidden md:group-hover/side:inline">Histórico</span>
+        </router-link>
+
         <div class="px-4 pt-4 pb-1">
           <div class="border-t border-white border-opacity-20"></div>
         </div>
@@ -87,13 +109,45 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowUpTrayIcon, Bars3Icon, Cog6ToothIcon, CubeTransparentIcon } from '@heroicons/vue/24/outline';
+import {
+  ArrowUpTrayIcon,
+  Bars3Icon,
+  ChartBarIcon,
+  ClockIcon,
+  Cog6ToothIcon,
+  CubeTransparentIcon,
+} from '@heroicons/vue/24/outline';
+import api from '../services/api';
 
 const sidebarOpen = ref(false);
+const indoParaAtual = ref(false);
 const route = useRoute();
 const router = useRouter();
 
 watch(() => route.path, () => { sidebarOpen.value = false; });
+
+interface CenarioResumo { id: number; status: string }
+
+/**
+ * Atalho da sidebar: abre direto o painel do cenário "atual" — o mais
+ * recente já CONCLUÍDO, não um rascunho ou algo ainda em andamento. A API já
+ * devolve do mais recente ao mais antigo, então pegamos o primeiro com esse
+ * status. Sem nenhum concluído, manda para o histórico (que explica o porquê).
+ */
+async function irParaAlocacaoAtual() {
+  indoParaAtual.value = true;
+  try {
+    const { data } = await api.get<CenarioResumo[]>('/api/cenarios');
+    const atual = data.find(c => c.status === 'concluida');
+    if (atual) {
+      router.push(`/saa/cenarios/${atual.id}/visualizacao`);
+    } else {
+      router.push('/saa/historico');
+    }
+  } finally {
+    indoParaAtual.value = false;
+  }
+}
 </script>
 
 <style scoped>

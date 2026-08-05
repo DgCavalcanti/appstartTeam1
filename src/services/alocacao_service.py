@@ -92,12 +92,25 @@ class AlocacaoService:
             for item in unidade.demandas:
                 demanda[indice_turno(item.dia_semana, item.turno)] = item.quantidade
             clinicas.append(
-                Clinica(id=unidade.id, nome=unidade.unidade_nome, demanda=tuple(demanda))
+                Clinica(
+                    id=unidade.id,
+                    nome=unidade.unidade_nome,
+                    demanda=tuple(demanda),
+                    # Restrição rígida marcada na etapa 2: propaga para o
+                    # motor decidir o pool (padrão/especializada) da clínica.
+                    precisa_sala_especializada=unidade.precisa_sala_especializada,
+                )
             )
 
         pavimentos = tuple(
             PavimentoDominio(
-                id=p.id, nome=p.nome_completo, capacidade=p.capacidade
+                id=p.id,
+                nome=p.nome_completo,
+                # `capacidade` do domínio é só o pool padrão (ver docstring do
+                # dataclass); a especializada vai no campo próprio, reservada
+                # às clínicas que a exigem.
+                capacidade=p.capacidade_padrao,
+                capacidade_especializada=p.capacidade_especializada,
             )
             for p in cenario.pavimentos
         )

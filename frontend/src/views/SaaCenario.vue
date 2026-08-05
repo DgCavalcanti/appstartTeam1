@@ -124,6 +124,15 @@
             @change="alternarParticipacao(linha, $event)"
           />
         </template>
+        <template #celula-precisa_sala_especializada="{ linha }">
+          <input
+            type="checkbox"
+            :checked="linha.precisa_sala_especializada"
+            class="rounded"
+            title="Restrição rígida: a clínica só é alocada em sala especializada"
+            @change="alternarSalaEspecializada(linha, $event)"
+          />
+        </template>
       </PlanilhaEditavel>
     </section>
 
@@ -332,7 +341,9 @@
             </p>
             <ul class="text-xs text-paper-text space-y-0.5">
               <li v-for="(c, i) in conflitos.sobrecarga" :key="i">
-                <strong>{{ c.pavimento }}</strong> — excede em {{ c.excesso }} estação(ões) na {{ c.turno }}
+                <strong>{{ c.pavimento }}</strong> — excede em {{ c.excesso }} estação(ões)
+                <span class="font-medium uppercase">{{ c.pool === 'especializada' ? 'especializadas' : 'padrão' }}</span>
+                na {{ c.turno }}
               </li>
             </ul>
           </div>
@@ -372,24 +383,42 @@
                 @dragleave="aoSairDoCard(b.id)"
                 @drop.prevent="soltarEm(b.id)"
               >
-                <div class="flex items-center justify-between mb-2">
-                  <p class="text-sm font-medium text-paper-text">{{ b.bloco }}</p>
-                  <span
-                    class="text-xs shrink-0"
-                    :class="sobrecarregado(b) ? 'text-paper-danger font-medium' : 'text-gray-400'"
-                  >{{ b.capacidade }} est.</span>
+                <!-- Cabeçalho do card: nome do bloco + capacidade separada por tipo de sala -->
+                <div class="flex items-start justify-between mb-2 pb-2 border-b border-gray-100">
+                  <p class="text-sm font-semibold text-paper-text">{{ b.bloco }}</p>
+                  <div class="text-right shrink-0">
+                    <span
+                      class="text-xs block"
+                      :class="sobrecarregado(b) ? 'text-paper-danger font-semibold' : 'text-gray-500'"
+                    >{{ b.capacidade_padrao ?? b.capacidade }} padrão</span>
+                    <span
+                      v-if="(b.capacidade_especializada ?? 0) > 0"
+                      class="text-xs block text-paper-info"
+                    >{{ b.capacidade_especializada }} especializadas</span>
+                  </div>
                 </div>
+
                 <div class="flex flex-wrap gap-1.5">
                   <span
                     v-for="c in b.clinicas"
                     :key="c.id"
                     draggable="true"
-                    class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 cursor-grab active:cursor-grabbing hover:bg-gray-200 select-none"
-                    :class="arrastandoId === c.id ? 'opacity-40' : ''"
-                    :title="`${c.nome} · ${somaDemanda(c)} grades`"
+                    class="text-xs px-2 py-1 rounded cursor-grab active:cursor-grabbing select-none border"
+                    :class="[
+                      arrastandoId === c.id ? 'opacity-40' : '',
+                      c.precisa_sala_especializada
+                        ? 'bg-paper-info/10 text-paper-text border-paper-info/40 hover:bg-paper-info/20'
+                        : 'bg-gray-100 text-gray-700 border-transparent hover:bg-gray-200',
+                    ]"
+                    :title="`${c.nome} · ${somaDemanda(c)} grades${c.precisa_sala_especializada ? ' · exige sala especializada' : ''}`"
                     @dragstart="aoIniciarArraste($event, c.id)"
                     @dragend="aoTerminarArraste"
-                  >{{ c.nome }}</span>
+                  >
+                    <span
+                      v-if="c.precisa_sala_especializada"
+                      class="inline-block w-1.5 h-1.5 rounded-full bg-paper-info mr-1 align-middle"
+                    ></span>{{ c.nome }}
+                  </span>
                   <span v-if="!b.clinicas.length" class="text-xs text-gray-400 italic py-1">
                     solte uma clínica aqui
                   </span>
@@ -398,6 +427,10 @@
             </div>
           </div>
         </div>
+        <p class="text-xs text-gray-400 mt-3 flex items-center gap-1">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-paper-info"></span>
+          clínica marcada na etapa 2 como exigindo sala especializada
+        </p>
       </template>
     </section>
   </div>
@@ -497,6 +530,7 @@ const ocupacaoDePico = computed(() => {
 const colunasGrades = computed<Coluna[]>(() => [
   { chave: 'nome', rotulo: 'Clínica', largura: '18rem' },
   { chave: 'participa', rotulo: 'Ativa', largura: '4rem' },
+  { chave: 'precisa_sala_especializada', rotulo: 'Sala especializada', largura: '6rem' },
   ...colunasTurno.value,
   { chave: 'total', rotulo: 'Total' },
 ]);
@@ -642,33 +676,70 @@ const quadroPorAndar = computed(() => {
   return [...grupos.values()].sort((a, b) => a.andar - b.andar);
 });
 
-/** Um bloco está sobrecarregado se a carga de algum turno passa da capacidade. */
-function sobrecarregado(bloco: any): boolean {
-  return turnos.value.some((_t, i) => {
-    const carga = bloco.clinicas.reduce((s: number, c: any) => s + (c.demanda?.[i] ?? 0), 0);
-    return carga > bloco.capacidade;
+/**
+ * Separa as clínicas de um bloco pelo pool a que pertencem — "padrao" ou
+ * "especializada" — espelhando a mesma reserva rígida que o motor de
+ * alocação aplica (heuristica.py): uma clínica especializada nunca compete
+ * por espaço com uma padrão, mesmo dentro do mesmo bloco/pavimento.
+ */
+function gruposDePool(bloco: any): { padrao: any[]; especializada: any[] } {
+  return {
+    padrao: bloco.clinicas.filter((c: any) => !c.precisa_sala_especializada),
+    especializada: bloco.clinicas.filter((c: any) => c.precisa_sala_especializada),
+  };
+}
+
+/**
+ * Estouros de um bloco, por pool e turno. Antes da sala especializada, a
+ * demanda de TODAS as clínicas do bloco era comparada contra a capacidade
+ * combinada — o que ficou incorreto depois que padrão e especializada
+ * passaram a ser reservas independentes (uma clínica especializada nunca
+ * "empresta" a padrão, e vice-versa). Agora cada pool é comparado só contra
+ * a capacidade do próprio pool.
+ */
+function estourosDoBloco(bloco: any): { pool: 'padrao' | 'especializada'; turnoIndice: number; excesso: number }[] {
+  const grupos = gruposDePool(bloco);
+  const capacidades: Record<'padrao' | 'especializada', number> = {
+    padrao: bloco.capacidade_padrao ?? bloco.capacidade ?? 0,
+    especializada: bloco.capacidade_especializada ?? 0,
+  };
+  const resultado: { pool: 'padrao' | 'especializada'; turnoIndice: number; excesso: number }[] = [];
+  (['padrao', 'especializada'] as const).forEach(pool => {
+    turnos.value.forEach((_t, i) => {
+      const carga = grupos[pool].reduce((s: number, c: any) => s + (c.demanda?.[i] ?? 0), 0);
+      const capacidade = capacidades[pool];
+      if (carga > capacidade) {
+        resultado.push({ pool, turnoIndice: i, excesso: carga - capacidade });
+      }
+    });
   });
+  return resultado;
+}
+
+/** Um bloco está sobrecarregado se QUALQUER um dos dois pools estoura em algum turno. */
+function sobrecarregado(bloco: any): boolean {
+  return estourosDoBloco(bloco).length > 0;
 }
 
 /**
  * Conflitos atuais, recalculados a cada movimento. "Aceitar e só avisar": nada
  * bloqueia — só listamos. Sobrecarga (capacidade) fica separada das regras
- * (obrigatoriedade/preferência).
+ * (obrigatoriedade/preferência), e agora identifica também QUAL pool
+ * (padrão ou especializada) estourou.
  */
 const conflitos = computed(() => {
-  const sobrecarga: { pavimento: string; turno: string; excesso: number }[] = [];
+  const sobrecarga: { pavimento: string; turno: string; excesso: number; pool: string }[] = [];
   for (const grupo of quadroPorAndar.value) {
     for (const b of grupo.blocos) {
-      turnos.value.forEach((t, i) => {
-        const carga = b.clinicas.reduce((s: number, c: any) => s + (c.demanda?.[i] ?? 0), 0);
-        if (carga > b.capacidade) {
-          sobrecarga.push({
-            pavimento: b.nome_completo,
-            turno: `${rotuloDia(t.dia)} ${rotuloPeriodo(t.periodo)}`,
-            excesso: carga - b.capacidade,
-          });
-        }
-      });
+      for (const est of estourosDoBloco(b)) {
+        const t = turnos.value[est.turnoIndice];
+        sobrecarga.push({
+          pavimento: b.nome_completo,
+          turno: `${rotuloDia(t.dia)} ${rotuloPeriodo(t.periodo)}`,
+          excesso: est.excesso,
+          pool: est.pool,
+        });
+      }
     }
   }
 
@@ -841,6 +912,20 @@ async function alternarParticipacao(linha: any, evento: Event) {
     const { data } = await api.put(`/api/cenarios/${cenarioId.value}/grades`, {
       celulas: [],
       participacao: { [linha.id]: participa },
+    });
+    grades.value = data.unidades;
+    totaisGrades.value = data.totais_por_turno;
+    etapas.value = data.etapas;
+  });
+}
+
+/** Marca/desmarca a exigência de sala especializada (restrição rígida). */
+async function alternarSalaEspecializada(linha: any, evento: Event) {
+  const precisa = (evento.target as HTMLInputElement).checked;
+  await comErro(async () => {
+    const { data } = await api.put(`/api/cenarios/${cenarioId.value}/grades`, {
+      celulas: [],
+      salas_especializadas: { [linha.id]: precisa },
     });
     grades.value = data.unidades;
     totaisGrades.value = data.totais_por_turno;

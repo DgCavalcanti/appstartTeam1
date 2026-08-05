@@ -323,7 +323,15 @@ async def criar_cenario(
     resultado = None
     if clinicas and entradas:
         dominio = tuple(
-            PavimentoDominio(id=i, nome=e.nome_completo, capacidade=e.capacidade)
+            PavimentoDominio(
+                id=i,
+                nome=e.nome_completo,
+                # `capacidade` do domínio é só o pool padrão; a especializada
+                # (reservada) vai no campo próprio — mesma separação usada em
+                # `AlocacaoService._montar_entrada` para cenários já salvos.
+                capacidade=e.capacidade_padrao,
+                capacidade_especializada=e.capacidade_especializada,
+            )
             for i, e in enumerate(entradas, start=1)
         )
         obrigatorias, afinidade = pesos_do_motor(
@@ -491,7 +499,7 @@ async def confirmar_etapa(
     cenario = await _carregar(sessao, cenario_id)
     processo = ProcessoService(sessao)
     try:
-        await processo.registrar_alteracao(cenario, numero)
+        await processo.confirmar_sem_alteracao(cenario, numero)
     except ValueError as erro:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
     await sessao.commit()
@@ -528,6 +536,8 @@ class EdicaoGrades(BaseModel):
 
     celulas: list[CelulaGrade] = Field(default_factory=list)
     participacao: dict[int, bool] = Field(default_factory=dict)
+    #: unidade_id → exige sala especializada? Restrição rígida (etapa 2/6).
+    salas_especializadas: dict[int, bool] = Field(default_factory=dict)
 
 
 @router.get("/{cenario_id}/grades", summary="Ler a planilha de grades")
@@ -558,6 +568,8 @@ async def editar_grades(
             )
         for unidade_id, participa in edicao.participacao.items():
             await servico.definir_participacao(cenario, unidade_id, participa)
+        for unidade_id, precisa in edicao.salas_especializadas.items():
+            await servico.definir_sala_especializada(cenario, unidade_id, precisa)
     except ValueError as erro:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(erro))
 
@@ -781,6 +793,7 @@ async def _detalhar(repo: AlocacaoRepository, cenario_id: int) -> dict:
                 "id": unidade.id,
                 "nome": unidade.unidade_nome,
                 "participa": unidade.participa,
+                "precisa_sala_especializada": unidade.precisa_sala_especializada,
                 # Bloco e pavimento (nome curto) separados — permite filtrar por
                 # cada um independentemente na tela; o completo fica para
                 # tooltip e para quem só quer o texto pronto.
@@ -819,6 +832,8 @@ async def _detalhar(repo: AlocacaoRepository, cenario_id: int) -> dict:
                 "esp_2est": p.esp_2est,
                 "fechada": p.fechada,
                 "capacidade": p.capacidade,
+                "capacidade_padrao": p.capacidade_padrao,
+                "capacidade_especializada": p.capacidade_especializada,
                 "salas_abertas": p.salas_abertas,
             }
             for p in cenario.pavimentos

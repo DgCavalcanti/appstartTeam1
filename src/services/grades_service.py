@@ -47,6 +47,7 @@ class GradesService:
                     "id": unidade.id,
                     "nome": unidade.unidade_nome,
                     "participa": unidade.participa,
+                    "precisa_sala_especializada": unidade.precisa_sala_especializada,
                     "demanda": demanda,
                     "total": sum(demanda),
                     "pico": max(demanda) if demanda else 0,
@@ -113,6 +114,30 @@ class GradesService:
             cenario.id,
             unidade.unidade_nome,
             "participa" if participa else "não participa",
+        )
+        return unidade
+
+    async def definir_sala_especializada(
+        self, cenario: Alocacao, unidade_id: int, precisa: bool
+    ) -> AlocacaoUnidade:
+        """
+        Marca/desmarca a exigência de sala especializada de uma unidade.
+
+        Restrição RÍGIDA (mesmo padrão de `definir_participacao`): a
+        marcação em si não bloqueia nada aqui — quem trava o pavimento
+        errado é o motor (`heuristica.py`), que passa a considerar só o pool
+        especializado do pavimento para esta clínica a partir da próxima
+        execução.
+        """
+        unidade = self._unidade(cenario, unidade_id)
+        unidade.precisa_sala_especializada = precisa
+
+        await self.processo.registrar_alteracao(cenario, ETAPA_GRADES)
+        logger.info(
+            "cenário %d: %s agora %s sala especializada",
+            cenario.id,
+            unidade.unidade_nome,
+            "exige" if precisa else "não exige",
         )
         return unidade
 

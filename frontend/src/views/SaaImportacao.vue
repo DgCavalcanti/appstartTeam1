@@ -122,102 +122,130 @@
 
     <!-- ── 3. Unidades que não participam ──────────────────────────────── -->
     <section v-if="dados" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
-      <div class="flex items-start justify-between gap-4 mb-1">
-        <h2 class="text-lg font-semibold text-paper-text">
+      <button
+        type="button"
+        class="w-full flex items-start justify-between gap-4 text-left"
+        :aria-expanded="abrirUnidades"
+        @click="abrirUnidades = !abrirUnidades"
+      >
+        <h2 class="text-lg font-semibold text-paper-text flex items-center gap-2">
+          <ChevronRightIcon
+            class="h-4 w-4 text-gray-400 shrink-0 transition-transform duration-200"
+            :class="abrirUnidades ? 'rotate-90' : ''"
+          />
           Unidades ({{ dados.clinicas.length }} participando)
         </h2>
-        <button
-          v-if="temOverride"
-          class="text-sm text-paper-info hover:underline shrink-0"
-          @click="restaurarPadrao"
-        >restaurar padrão do catálogo</button>
-      </div>
-      <p class="text-sm text-gray-500 mb-4">
-        Já vem marcado quem participa do ambulatório, segundo o catálogo do HC.
-        Ajuste se precisar — alterar aqui reexecuta o pipeline.
-      </p>
-
-      <div class="max-h-64 overflow-y-auto border border-gray-200 rounded divide-y divide-gray-100">
-        <label
-          v-for="u in todasUnidades"
-          :key="u"
-          class="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
-        >
-          <input type="checkbox" :value="u" v-model="participantes" class="rounded" />
-          <span :class="participantes.includes(u) ? 'text-paper-text' : 'text-gray-400 line-through'">
-            {{ u }}
-          </span>
-          <span
-            v-if="unidadesNovas.includes(u)"
-            class="text-[10px] px-1 rounded bg-paper-info/20 text-paper-text"
-            title="Unidade nova, não estava no catálogo — confira se participa"
-          >nova</span>
-        </label>
-      </div>
-
-      <button
-        class="mt-4 px-4 py-2 rounded bg-paper-default text-white text-sm font-medium hover:bg-paper-default-hover disabled:bg-paper-disabled"
-        :disabled="carregando"
-        @click="reprocessar"
-      >
-        Reprocessar
       </button>
+
+      <template v-if="abrirUnidades">
+        <div class="flex justify-end -mt-1 mb-1">
+          <button
+            v-if="temOverride"
+            class="text-sm text-paper-info hover:underline shrink-0"
+            @click="restaurarPadrao"
+          >restaurar padrão do catálogo</button>
+        </div>
+        <p class="text-sm text-gray-500 mb-4">
+          Já vem marcado quem participa do ambulatório, segundo o catálogo do HC.
+          Ajuste se precisar — alterar aqui reexecuta o pipeline.
+        </p>
+
+        <div class="max-h-64 overflow-y-auto border border-gray-200 rounded divide-y divide-gray-100">
+          <label
+            v-for="u in todasUnidades"
+            :key="u"
+            class="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+          >
+            <input type="checkbox" :value="u" v-model="participantes" class="rounded" />
+            <span :class="participantes.includes(u) ? 'text-paper-text' : 'text-gray-400 line-through'">
+              {{ u }}
+            </span>
+            <span
+              v-if="unidadesNovas.includes(u)"
+              class="text-[10px] px-1 rounded bg-paper-info/20 text-paper-text"
+              title="Unidade nova, não estava no catálogo — confira se participa"
+            >nova</span>
+          </label>
+        </div>
+
+        <button
+          class="mt-4 px-4 py-2 rounded bg-paper-default text-white text-sm font-medium hover:bg-paper-default-hover disabled:bg-paper-disabled"
+          :disabled="carregando"
+          @click="reprocessar"
+        >
+          Reprocessar
+        </button>
+      </template>
     </section>
 
     <!-- ── 4. Panorama de salas ────────────────────────────────────────── -->
     <section v-if="dados" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
-      <h2 class="text-lg font-semibold text-paper-text mb-1">
-        Panorama de salas
-        <span class="text-sm font-normal text-gray-500">
-          — {{ capacidadeTotal }} estações por turno
-        </span>
-      </h2>
-      <p class="text-sm text-gray-500 mb-4">
-        Informe quantas salas de cada tipo há no pavimento. A capacidade é
-        calculada — uma sala de 2 estações comporta dois atendimentos e vale 2.
-      </p>
+      <button
+        type="button"
+        class="w-full flex items-start justify-between gap-4 text-left"
+        :aria-expanded="abrirPanorama"
+        @click="abrirPanorama = !abrirPanorama"
+      >
+        <h2 class="text-lg font-semibold text-paper-text flex items-center gap-2">
+          <ChevronRightIcon
+            class="h-4 w-4 text-gray-400 shrink-0 transition-transform duration-200"
+            :class="abrirPanorama ? 'rotate-90' : ''"
+          />
+          Panorama de salas
+          <span class="text-sm font-normal text-gray-500">
+            — {{ capacidadeTotal }} estações por turno
+          </span>
+        </h2>
+      </button>
 
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm border-collapse">
-          <thead>
-            <tr class="text-xs text-gray-500 border-b border-gray-200">
-              <th class="text-left py-2 pr-3 font-medium">Pavimento</th>
-              <th class="px-2 font-medium text-center">Padrão<br />1 est.</th>
-              <th class="px-2 font-medium text-center">Padrão<br />2 est.</th>
-              <th class="px-2 font-medium text-center">Espec.<br />1 est.</th>
-              <th class="px-2 font-medium text-center">Espec.<br />2 est.</th>
-              <th class="px-2 font-medium text-center">Fechadas</th>
-              <th class="pl-3 font-medium text-right">Estações</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="(p, i) in pavimentos" :key="i">
-              <tr v-if="mudaDeAndar(i)" class="bg-gray-50">
-                <td colspan="7" class="py-1 pr-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Pavimento {{ p.andar || '—' }}
-                </td>
+      <template v-if="abrirPanorama">
+        <p class="text-sm text-gray-500 mb-4 mt-1">
+          Informe quantas salas de cada tipo há no pavimento. A capacidade é
+          calculada — uma sala de 2 estações comporta dois atendimentos e vale 2.
+        </p>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm border-collapse">
+            <thead>
+              <tr class="text-xs text-gray-500 border-b border-gray-200">
+                <th class="text-left py-2 pr-3 font-medium">Pavimento</th>
+                <th class="px-2 font-medium text-center">Padrão<br />1 est.</th>
+                <th class="px-2 font-medium text-center">Padrão<br />2 est.</th>
+                <th class="px-2 font-medium text-center">Espec.<br />1 est.</th>
+                <th class="px-2 font-medium text-center">Espec.<br />2 est.</th>
+                <th class="px-2 font-medium text-center">Fechadas</th>
+                <th class="pl-3 font-medium text-right">Estações</th>
               </tr>
-              <tr class="border-b border-gray-100">
-                <td class="py-1.5 pr-3 text-paper-text whitespace-nowrap">{{ p.nome_completo }}</td>
-                <td v-for="campo in CAMPOS_SALA" :key="campo" class="px-1 text-center">
-                  <input
-                    type="number" min="0"
-                    v-model.number="p[campo]"
-                    class="w-14 px-1 py-1 border border-gray-300 rounded text-sm text-center tabular-nums"
-                  />
-                </td>
-                <td class="pl-3 text-right tabular-nums font-medium">{{ capacidadeDe(p) }}</td>
+            </thead>
+            <tbody>
+              <template v-for="(p, i) in pavimentos" :key="i">
+                <tr v-if="mudaDeAndar(i)" class="bg-gray-50">
+                  <td colspan="7" class="py-1 pr-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Pavimento {{ p.andar || '—' }}
+                  </td>
+                </tr>
+                <tr class="border-b border-gray-100">
+                  <td class="py-1.5 pr-3 text-paper-text whitespace-nowrap">{{ p.nome_completo }}</td>
+                  <td v-for="campo in CAMPOS_SALA" :key="campo" class="px-1 text-center">
+                    <input
+                      type="number" min="0"
+                      v-model.number="p[campo]"
+                      class="w-14 px-1 py-1 border border-gray-300 rounded text-sm text-center tabular-nums"
+                    />
+                  </td>
+                  <td class="pl-3 text-right tabular-nums font-medium">{{ capacidadeDe(p) }}</td>
+                </tr>
+              </template>
+            </tbody>
+            <tfoot>
+              <tr class="text-sm">
+                <td colspan="6" class="pt-2 text-right text-gray-500">Total</td>
+                <td class="pt-2 pl-3 text-right tabular-nums font-semibold">{{ capacidadeTotal }}</td>
               </tr>
-            </template>
-          </tbody>
-          <tfoot>
-            <tr class="text-sm">
-              <td colspan="6" class="pt-2 text-right text-gray-500">Total</td>
-              <td class="pt-2 pl-3 text-right tabular-nums font-semibold">{{ capacidadeTotal }}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </tfoot>
+          </table>
+        </div>
+      </template>
     </section>
 
     <!-- ── 5. Resultado da alocação ────────────────────────────────────── -->
@@ -305,49 +333,14 @@
         </table>
       </div>
 
-      <!-- Clínica → pavimento -->
-      <h3 class="text-sm font-semibold text-paper-text mb-2">Clínica → pavimento</h3>
-      <FiltroAlocacao :linhas="clinicasOrdenadas" v-slot="{ filtradas }">
-        <div class="overflow-x-auto max-h-96 overflow-y-auto">
-          <table class="w-full text-sm border-collapse">
-            <thead class="sticky top-0 bg-white">
-              <tr class="text-xs text-gray-500 border-b border-gray-200">
-                <th class="text-left py-2 pr-3 font-medium">Clínica</th>
-                <th class="text-left px-2 font-medium">Pavimento</th>
-                <th class="text-left px-2 font-medium">Bloco</th>
-                <th v-for="(t, i) in dados.turnos" :key="i" class="px-2 font-medium text-center whitespace-nowrap">
-                  <span class="block leading-tight">{{ rotuloDia(t.dia) }}</span>
-                  <span class="block leading-tight font-normal text-gray-400">{{ rotuloPeriodo(t.periodo) }}</span>
-                </th>
-                <th class="text-right pl-2 font-medium">Total</th>
-                <th class="text-right pl-2 font-medium">Sem sala</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="c in filtradas" :key="c.clinica_id" class="border-b border-gray-100">
-                <td class="py-2 pr-3 text-paper-text truncate max-w-xs" :title="c.nome">{{ c.nome }}</td>
-                <td class="px-2 text-gray-600 text-xs">{{ c.pavimento ?? '—' }}</td>
-                <td class="px-2 text-gray-500 text-xs">{{ c.bloco ?? '—' }}</td>
-                <td
-                  v-for="(q, i) in c.alocado"
-                  :key="i"
-                  class="text-center px-1 tabular-nums text-xs"
-                  :class="q === 0 ? 'text-gray-300' : 'text-paper-text'"
-                >{{ q || '·' }}</td>
-                <td class="text-right pl-2 tabular-nums">{{ c.total_alocado }}</td>
-                <td
-                  class="text-right pl-2 tabular-nums"
-                  :class="c.total_nao_alocado > 0 ? 'text-paper-danger font-semibold' : 'text-gray-300'"
-                >{{ c.total_nao_alocado || '—' }}</td>
-              </tr>
-              <tr v-if="!filtradas.length">
-                <td :colspan="dados.turnos.length + 5" class="py-6 text-center text-gray-400">
-                  Nenhuma clínica corresponde ao filtro.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <!-- Alocação por pavimento — mesmo formato da etapa 5 do cenário -->
+      <h3 class="text-sm font-semibold text-paper-text mb-2">Alocação por pavimento</h3>
+      <FiltroAlocacao :linhas="linhasResultado" v-slot="{ filtradas }">
+        <PlanilhaEditavel
+          :colunas="colunasResultado"
+          :linhas="filtradas"
+          :rotulo-grupo="grupoPavimento"
+        />
       </FiltroAlocacao>
 
       <!-- Gravar como cenário -->
@@ -374,79 +367,25 @@
         </div>
       </div>
     </section>
-
-    <!-- ── 6. Histórico de cenários ────────────────────────────────────── -->
-    <section v-if="cenarios.length" class="bg-white rounded-lg border border-paper-line shadow-paper p-6 animate-fade-in-up transition-shadow duration-300 hover:shadow-md">
-      <h2 class="text-lg font-semibold text-paper-text mb-1">
-        Histórico ({{ cenarios.length }})
-      </h2>
-      <p class="text-sm text-gray-500 mb-4">
-        Cada alocação é independente. Clonar cria uma variação sem tocar na original.
-      </p>
-
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm border-collapse">
-          <thead>
-            <tr class="text-xs text-gray-500 border-b border-gray-200">
-              <th class="text-left py-2 pr-3 font-medium">Cenário</th>
-              <th class="text-left px-2 font-medium">Criado em</th>
-              <th class="text-right px-2 font-medium">Clínicas</th>
-              <th class="text-right px-2 font-medium">Pavimentos</th>
-              <th class="text-left px-2 font-medium">Status</th>
-              <th class="text-right pl-2 font-medium">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in cenarios" :key="c.id" class="border-b border-gray-100">
-              <td class="py-2 pr-3 text-paper-text">
-                {{ c.nome }}
-                <span v-if="c.origem_id" class="text-xs text-gray-400 ml-1">
-                  (clone de #{{ c.origem_id }})
-                </span>
-              </td>
-              <td class="px-2 text-gray-500 text-xs whitespace-nowrap">
-                {{ formatarData(c.criado_em) }}
-              </td>
-              <td class="text-right px-2 tabular-nums">{{ c.unidades }}</td>
-              <td class="text-right px-2 tabular-nums">{{ c.pavimentos }}</td>
-              <td class="px-2 text-xs text-gray-500">{{ c.status }}</td>
-              <td class="text-right pl-2 whitespace-nowrap">
-                <router-link
-                  :to="`/saa/cenarios/${c.id}`"
-                  class="text-paper-primary hover:underline text-xs mr-3 font-medium"
-                >Abrir</router-link>
-                <router-link
-                  :to="`/saa/cenarios/${c.id}/visualizacao`"
-                  class="text-paper-primary hover:underline text-xs mr-3"
-                >Painel</router-link>
-                <button class="text-paper-info hover:underline text-xs mr-3" @click="clonarCenario(c)">
-                  Clonar
-                </button>
-                <button class="text-paper-danger hover:underline text-xs" @click="excluirCenario(c)">
-                  Excluir
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { ArrowUpTrayIcon, CheckCircleIcon } from '@heroicons/vue/24/outline';
+import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { ArrowUpTrayIcon, CheckCircleIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import FiltroAlocacao from '../components/FiltroAlocacao.vue';
-import { rotuloDia, rotuloPeriodo } from '../utils/turno';
+import PlanilhaEditavel, { type Coluna } from '../components/PlanilhaEditavel.vue';
+import { rotuloDia, rotuloPeriodo, rotuloTurno } from '../utils/turno';
 import api from '../services/api';
 
+const router = useRouter();
+
+/** As seções 3 e 4 começam fechadas — só o essencial (o resultado) fica visível de cara. */
+const abrirUnidades = ref(false);
+const abrirPanorama = ref(false);
+
 interface Turno { dia: string; periodo: string }
-interface Cenario {
-  id: number; nome: string; status: string; etapa_atual: number;
-  criado_em: string | null; origem_id: number | null;
-  unidades: number; pavimentos: number;
-}
 interface Clinica { id: number; nome: string; demanda: number[]; total: number; pico: number }
 interface ResultadoClinica {
   clinica_id: number; nome: string;
@@ -493,7 +432,6 @@ const erro = ref('');
 const dados = ref<Resposta | null>(null);
 
 const nomeCenario = ref('');
-const cenarios = ref<Cenario[]>([]);
 
 interface PavimentoEditavel {
   bloco: string; nome: string; nome_completo: string; andar: number;
@@ -549,12 +487,58 @@ const picoDemanda = computed(() => {
   );
 });
 
-const clinicasOrdenadas = computed(() => {
+/** As 10 colunas de turno — mesmo padrão da etapa 5 do cenário. */
+const colunasTurno = computed<Coluna[]>(() =>
+  (dados.value?.turnos ?? []).map((t, i) => ({
+    chave: `t${i}`,
+    rotulo: rotuloTurno(t),
+    editavel: false,
+  }))
+);
+
+const colunasResultado = computed<Coluna[]>(() => [
+  { chave: 'pavimento', rotulo: 'Pavimento', largura: '12rem' },
+  { chave: 'bloco', rotulo: 'Bloco', largura: '8rem' },
+  { chave: 'nome', rotulo: 'Clínica', largura: '18rem' },
+  ...colunasTurno.value,
+  { chave: 'total_alocado', rotulo: 'Total' },
+  { chave: 'total_nao_alocado', rotulo: 'Sem sala' },
+]);
+
+/**
+ * Achata o vetor `alocado` em colunas t0..t9 para a planilha consumir.
+ *
+ * O retorno preserva os campos de `ResultadoClinica` (incluindo `nome`,
+ * `bloco`, `pavimento`) além das colunas `t0..t9` — é o que o `FiltroAlocacao`
+ * exige do genérico (`{ nome; bloco?; pavimento? }`), então o tipo não pode
+ * cair para `Record<string, any>` puro, senão o TypeScript perde a garantia
+ * de que `nome` existe.
+ */
+function paraLinhasResultado(
+  clinicas: ResultadoClinica[]
+): (ResultadoClinica & Record<string, any>)[] {
+  return clinicas.map(c => {
+    const linha = { ...c, id: c.clinica_id } as ResultadoClinica & Record<string, any>;
+    c.alocado.forEach((q, i) => (linha[`t${i}`] = q));
+    return linha;
+  });
+}
+
+/** Tabela lida "por pavimento": ordena por pavimento, bloco e nome — igual à etapa 5. */
+const linhasResultado = computed(() => {
   if (!dados.value?.alocacao) return [];
-  return [...dados.value.alocacao.por_clinica].sort(
-    (a, b) => b.total_alocado + b.total_nao_alocado - (a.total_alocado + a.total_nao_alocado)
+  return paraLinhasResultado(dados.value.alocacao.por_clinica).sort(
+    (a, b) =>
+      (a.pavimento ?? '').localeCompare(b.pavimento ?? '', 'pt-BR') ||
+      (a.bloco ?? '').localeCompare(b.bloco ?? '', 'pt-BR') ||
+      a.nome.localeCompare(b.nome, 'pt-BR')
   );
 });
+
+/** Separa a tabela por pavimento (linha de grupo). */
+function grupoPavimento(linha: Record<string, any>): string {
+  return linha.pavimento ?? '—';
+}
 
 const funil = computed(() => {
   const r = dados.value?.relatorio;
@@ -617,11 +601,7 @@ async function carregarPadroes() {
   pavimentos.value = data.pavimentos.map((p: any) => ({ ...p }));
 }
 
-async function carregarHistorico() {
-  const { data } = await api.get<Cenario[]>('/api/cenarios');
-  cenarios.value = data;
-}
-
+/** Salva o cenário e leva o gestor direto para ele — o histórico tem sua própria página. */
 async function salvarCenario() {
   if (!arquivo.value || !nomeCenario.value.trim()) return;
   salvando.value = true;
@@ -637,37 +617,15 @@ async function salvarCenario() {
     // O gestor confirmou a seleção na tela; enviamos como escolha explícita.
     form.append('unidades_excluidas', JSON.stringify(excluidas));
 
-    await api.post('/api/cenarios', form);
+    const { data } = await api.post('/api/cenarios', form);
     nomeCenario.value = '';
-    await carregarHistorico();
+    router.push(`/saa/cenarios/${data.id}`);
   } catch (e: any) {
     erro.value = e?.response?.data?.detail ?? e?.message ?? 'Falha ao salvar o cenário';
   } finally {
     salvando.value = false;
   }
 }
-
-async function clonarCenario(cenario: Cenario) {
-  const form = new FormData();
-  form.append('nome', `${cenario.nome} (cópia)`);
-  await api.post(`/api/cenarios/${cenario.id}/clonar`, form);
-  await carregarHistorico();
-}
-
-async function excluirCenario(cenario: Cenario) {
-  await api.delete(`/api/cenarios/${cenario.id}`);
-  await carregarHistorico();
-}
-
-function formatarData(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('pt-BR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
-
-onMounted(carregarHistorico);
 
 /**
  * Importa e simula.

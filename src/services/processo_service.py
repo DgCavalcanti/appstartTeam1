@@ -120,6 +120,23 @@ class ProcessoService:
             )
         return frozenset(invalidadas)
 
+    async def confirmar_sem_alteracao(self, cenario: Alocacao, numero: int) -> None:
+        """
+        Marca uma etapa como preenchida sem propagar invalidação nenhuma.
+
+        Existe para o gestor revisar uma etapa e confirmar que está tudo certo
+        sem precisar editar um dado só para o sistema perceber. Diferente de
+        `registrar_alteracao()`: aqui nada realmente mudou, então as etapas 5
+        e 6 não podem virar "desatualizada" nem o cenário sair de concluído —
+        isso só faz sentido quando um dado de fato muda.
+        """
+        etapa_por_numero(numero)
+        alvo = self.etapa(cenario, numero)
+        if alvo.status != PREENCHIDA:
+            alvo.status = PREENCHIDA
+            alvo.atualizado_em = datetime.now(timezone.utc)
+            await self.sessao.flush()
+
     async def ir_para(self, cenario: Alocacao, numero: int) -> None:
         """Move o ponteiro do gestor. Não muda status de etapa nenhuma."""
         etapa_por_numero(numero)

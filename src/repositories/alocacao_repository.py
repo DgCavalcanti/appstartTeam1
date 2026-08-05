@@ -63,6 +63,22 @@ class PavimentoEntrada:
         )
 
     @property
+    def capacidade_padrao(self) -> int:
+        """Estações só das salas PADRÃO — o pool "padrao" que o motor usa."""
+        return capacidade_em_estacoes(
+            padrao_1est=self.padrao_1est,
+            padrao_2est=self.padrao_2est,
+        )
+
+    @property
+    def capacidade_especializada(self) -> int:
+        """Estações só das salas ESPECIALIZADAS — o pool reservado do motor."""
+        return capacidade_em_estacoes(
+            esp_1est=self.esp_1est,
+            esp_2est=self.esp_2est,
+        )
+
+    @property
     def nome_completo(self) -> str:
         return f"{self.bloco} — {self.nome}"
 

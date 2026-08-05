@@ -21,8 +21,10 @@ from src.domain.entidades import (
     Clinica,
     Pavimento,
     Restricao,
+    capacidade_do_pool,
     capacidade_em_estacoes,
     indice_turno,
+    pool_da_clinica,
     salas_ocupadas,
     total_de_salas,
 )
@@ -672,3 +674,159 @@ class TestValidacaoDeEntrada:
         resultado = resolver(clinicas=(), pavimentos=(Pavimento(id=1, nome="P", capacidade=5),))
         assert resultado.por_clinica == ()
         assert resultado.total_nao_alocado == 0
+
+
+# ---------------------------------------------------------------------------
+# Sala especializada — pools segregados (padrão x especializada)
+# ---------------------------------------------------------------------------
+#
+# Regra de negócio (não uma preferência): uma clínica com
+# `precisa_sala_especializada=True` SÓ pode ocupar o pool "especializada" de
+# um pavimento — nunca o "padrao", mesmo que ele tenha espaço de sobra. E o
+# inverso também vale: uma clínica comum nunca ocupa a especializada, mesmo
+# que ela esteja vazia enquanto a padrão do mesmo andar estoura. É reserva
+# rígida, não pool compartilhado.
+
+
+class TestSalaEspecializada:
+
+    def test_pool_da_clinica(self):
+        comum = Clinica(id=1, nome="Comum", demanda=demanda_uniforme(1))
+        especial = Clinica(
+            id=2, nome="Especial", demanda=demanda_uniforme(1), precisa_sala_especializada=True
+        )
+        assert pool_da_clinica(comum) == "padrao"
+        assert pool_da_clinica(especial) == "especializada"
+
+    def test_capacidade_do_pool(self):
+        pavimento = Pavimento(id=1, nome="P", capacidade=7, capacidade_especializada=3)
+        assert capacidade_do_pool(pavimento, "padrao") == 7
+        assert capacidade_do_pool(pavimento, "especializada") == 3
+
+    def test_pavimento_sem_capacidade_especializada_tem_default_zero(self):
+        # Retrocompatibilidade: `Pavimento(id=.., nome=.., capacidade=N)` sem
+        # saber de sala especializada continua significando "N padrão, 0
+        # especializadas" — comportamento anterior à feature preservado.
+        pavimento = Pavimento(id=1, nome="P", capacidade=10)
+        assert pavimento.capacidade_especializada == 0
+        assert pavimento.capacidade_total == 10
+
+    def test_capacidade_especializada_negativa_e_invalida(self):
+        with pytest.raises(ValueError, match="negativa"):
+            Pavimento(id=1, nome="P", capacidade=10, capacidade_especializada=-1)
+
+    def test_clinica_especializada_nunca_usa_pool_padrao_mesmo_com_espaco(self):
+        # Pavimento com padrão vazio (sobrando) e especializada pequena e
+        # cheia. A clínica especializada NÃO pode "vazar" para o padrão livre.
+        especial = Clinica(
+            id=1,
+            nome="Ressonância",
+            demanda=demanda_uniforme(10),
+            precisa_sala_especializada=True,
+        )
+        pavimento = Pavimento(id=1, nome="P", capacidade=50, capacidade_especializada=3)
+
+        resultado = resolver(clinicas=(especial,), pavimentos=(pavimento,))
+
+        # Só 3 estações especializadas existem; o resto vira sobra — mesmo
+        # havendo 50 estações padrão livres no mesmo pavimento.
+        assert resultado.total_alocado == 3 * NUM_TURNOS
+        assert resultado.total_nao_alocado == (10 - 3) * NUM_TURNOS
+
+    def test_clinica_comum_nunca_ocupa_especializada_mesmo_com_padrao_cheia(self):
+        # Pavimento com padrão pequena e cheia e especializada grande e vazia.
+        # A clínica comum NÃO pode "vazar" para a especializada livre.
+        comum = Clinica(id=1, nome="Comum", demanda=demanda_uniforme(10))
+        pavimento = Pavimento(id=1, nome="P", capacidade=3, capacidade_especializada=50)
+
+        resultado = resolver(clinicas=(comum,), pavimentos=(pavimento,))
+
+        assert resultado.total_alocado == 3 * NUM_TURNOS
+        assert resultado.total_nao_alocado == (10 - 3) * NUM_TURNOS
+
+    def test_pools_segregados_no_mesmo_pavimento_simultaneamente(self):
+        # Uma clínica comum e uma especializada dividem o MESMO pavimento sem
+        # nunca disputar a mesma vaga — cada uma só vê o seu pool.
+        comum = Clinica(id=1, nome="Comum", demanda=demanda_uniforme(5))
+        especial = Clinica(
+            id=2, nome="Especial", demanda=demanda_uniforme(5), precisa_sala_especializada=True
+        )
+        pavimento = Pavimento(id=1, nome="P", capacidade=5, capacidade_especializada=5)
+
+        resultado = resolver(clinicas=(comum, especial), pavimentos=(pavimento,))
+
+        assert resultado.total_nao_alocado == 0
+        por_id = {r.clinica_id: r for r in resultado.por_clinica}
+        assert por_id[1].total_alocado == 5 * NUM_TURNOS
+        assert por_id[2].total_alocado == 5 * NUM_TURNOS
+
+    def test_obrigatoriedade_de_pavimento_gera_sobra_no_pool_especializado(self):
+        # Obrigatoriedade força o pavimento; a exigência de especializada
+        # ainda assim roteia para o pool certo e pode gerar sobra ali, mesmo
+        # com o pool padrão do mesmo pavimento vazio — os dois níveis de
+        # obrigatoriedade (pavimento + pool) se combinam sem um sobrepor o
+        # outro.
+        especial = Clinica(
+            id=1,
+            nome="Hemodiálise",
+            demanda=demanda_uniforme(10),
+            precisa_sala_especializada=True,
+        )
+        pavimento = Pavimento(id=1, nome="P", capacidade=100, capacidade_especializada=2)
+
+        resultado = resolver(
+            clinicas=(especial,),
+            pavimentos=(pavimento,),
+            obrigatorias={1: pavimento.id},
+        )
+
+        assert resultado.pavimento_da_clinica(1) == pavimento.id
+        assert resultado.total_alocado == 2 * NUM_TURNOS
+        assert resultado.total_nao_alocado == (10 - 2) * NUM_TURNOS
+
+    def test_clinica_especializada_escolhe_pavimento_com_pool_especializado(self):
+        # Colocação gulosa: entre dois pavimentos, só um tem capacidade
+        # especializada — a clínica especializada precisa ir para ele, mesmo
+        # que o outro tenha capacidade total (padrão) muito maior.
+        especial = Clinica(
+            id=1, nome="Especial", demanda=demanda_uniforme(4), precisa_sala_especializada=True
+        )
+        sem_especializada = Pavimento(id=1, nome="Sem especializada", capacidade=100)
+        com_especializada = Pavimento(
+            id=2, nome="Com especializada", capacidade=0, capacidade_especializada=10
+        )
+
+        resultado = resolver(
+            clinicas=(especial,), pavimentos=(sem_especializada, com_especializada)
+        )
+
+        assert resultado.pavimento_da_clinica(1) == com_especializada.id
+        assert resultado.total_nao_alocado == 0
+
+    def test_determinismo_com_dois_pools(self):
+        # Mesma entrada com clínicas dos dois pools → mesma saída sempre.
+        clinicas = (
+            Clinica(id=1, nome="Comum A", demanda=demanda_uniforme(4)),
+            Clinica(
+                id=2, nome="Especial A", demanda=demanda_uniforme(3),
+                precisa_sala_especializada=True,
+            ),
+            Clinica(id=3, nome="Comum B", demanda=demanda_uniforme(6)),
+            Clinica(
+                id=4, nome="Especial B", demanda=demanda_uniforme(2),
+                precisa_sala_especializada=True,
+            ),
+        )
+        pavimentos = (
+            Pavimento(id=1, nome="P1", capacidade=6, capacidade_especializada=3),
+            Pavimento(id=2, nome="P2", capacidade=6, capacidade_especializada=3),
+        )
+
+        primeira = resolver(clinicas=clinicas, pavimentos=pavimentos)
+        segunda = resolver(clinicas=clinicas, pavimentos=pavimentos)
+
+        assert [r.pavimento_id for r in primeira.por_clinica] == [
+            r.pavimento_id for r in segunda.por_clinica
+        ]
+        assert primeira.total_nao_alocado == segunda.total_nao_alocado
+        assert primeira.desvio_proporcional_total == segunda.desvio_proporcional_total

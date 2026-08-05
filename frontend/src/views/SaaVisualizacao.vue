@@ -140,6 +140,41 @@
       </div>
     </section>
 
+    <!-- Ocupação por pavimento — tabela compacta, um pavimento por linha -->
+    <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
+      <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-4">Ocupação por pavimento</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="text-xs text-gray-500 border-b border-gray-200">
+              <th class="text-left py-2 pr-3 font-medium">Pavimento</th>
+              <th class="text-right px-2 font-medium">Cap.</th>
+              <th class="text-right px-2 font-medium">Clín.</th>
+              <th v-for="(t, i) in painel.turnos" :key="i" class="px-2 font-medium text-center whitespace-nowrap">
+                <span class="block leading-tight">{{ rotuloDia(t.dia) }}</span>
+                <span class="block leading-tight font-normal text-gray-400">{{ rotuloPeriodo(t.periodo) }}</span>
+              </th>
+              <th class="text-right pl-2 font-medium">Pico</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in painel.por_pavimento" :key="p.id" class="border-b border-gray-100">
+              <td class="py-2 pr-3 text-paper-text">{{ p.nome }}</td>
+              <td class="text-right px-2 tabular-nums text-gray-500">{{ p.capacidade }}</td>
+              <td class="text-right px-2 tabular-nums text-gray-500">{{ p.clinicas.length }}</td>
+              <td
+                v-for="(q, i) in p.ocupacao"
+                :key="i"
+                class="text-center px-1 tabular-nums text-xs"
+                :class="corOcupacao(q, p.capacidade)"
+              >{{ q }}</td>
+              <td class="text-right pl-2 tabular-nums font-medium">{{ p.ocupacao_pico_pct }}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Alocação por pavimento → bloco → clínica: a visão espacial do prédio. -->
     <section class="bg-white rounded-lg border border-paper-line shadow-paper p-6 transition-shadow duration-300 hover:shadow-md">
       <h3 class="text-sm font-semibold text-paper-text uppercase tracking-wide mb-1">Alocação por pavimento</h3>
@@ -340,6 +375,16 @@ const porAndar = computed(() => {
     }))
     .sort((a, b) => a.andar - b.andar);
 });
+
+/** Cor da célula de ocupação por turno na tabela por pavimento. */
+function corOcupacao(q: number, capacidade: number): string {
+  if (capacidade === 0 || q === 0) return 'text-gray-300';
+  const uso = q / capacidade;
+  if (uso >= 1) return 'bg-paper-danger/20 text-paper-text font-semibold';
+  if (uso >= 0.8) return 'bg-paper-warning/20 text-paper-text';
+  if (uso >= 0.5) return 'bg-paper-success/15 text-paper-text';
+  return 'text-gray-500';
+}
 
 /** Andares abertos no acordeão — todos começam fechados (a lista compacta). */
 const abertos = reactive<Record<number, boolean>>({});

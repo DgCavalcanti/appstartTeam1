@@ -156,6 +156,17 @@ class Clinica:
     id: int
     nome: str
     demanda: tuple[int, ...]
+    #: Restrição RÍGIDA marcada manualmente pelo gestor: a clínica só pode
+    #: ocupar salas ESPECIALIZADAS (esp_1est/esp_2est), nunca as PADRÃO — nem
+    #: mesmo quando a padrão do pavimento está vazia e a especializada cheia
+    #: (as especializadas são reservadas, não um pool compartilhado). Tem o
+    #: mesmo peso de obrigatoriedade (nível 1 da hierarquia de objetivos): é a
+    #: única outra coisa, além de `Restricao(OBRIGATORIO)`, capaz de gerar
+    #: sobra. Campo no fim da lista e com default para não quebrar quem já
+    #: constrói `Clinica(id=.., nome=.., demanda=..)` sem saber de sala
+    #: especializada — o comportamento antigo é o caso particular
+    #: `precisa_sala_especializada=False` para todas.
+    precisa_sala_especializada: bool = False
 
     def __post_init__(self) -> None:
         if len(self.demanda) != NUM_TURNOS:
@@ -184,17 +195,73 @@ class Pavimento:
 
     A capacidade vale igualmente nos 10 turnos — é a "caixa" onde as clínicas
     são empacotadas.
+
+    `capacidade` NÃO mudou de nome nem de posição por compatibilidade — dezenas
+    de testes e vários call sites constroem `Pavimento(id=.., nome=.., capacidade=N)`
+    sem saber de sala especializada. O que mudou é a interpretação: a partir da
+    feature de sala especializada, `capacidade` passa a valer só para as
+    estações PADRÃO (padrao_1est/padrao_2est) do pavimento. As estações
+    ESPECIALIZADAS (esp_1est/esp_2est) ficam no novo campo
+    `capacidade_especializada`, que é RESERVADO — não é um pool compartilhado
+    com o padrão, mesmo quando o padrão está cheio e a especializada vazia.
+    Quem nunca soube de sala especializada continua funcionando exatamente
+    como antes: `capacidade_especializada=0` é o caso particular que preserva
+    o comportamento anterior à feature.
     """
 
     id: int
     nome: str
+    #: Estações PADRÃO — ver docstring da classe sobre a reinterpretação.
     capacidade: int
+    #: Estações ESPECIALIZADAS, reservadas às clínicas com
+    #: `Clinica.precisa_sala_especializada=True`. Default 0 preserva 100% de
+    #: compatibilidade com quem constrói `Pavimento` sem esse campo.
+    capacidade_especializada: int = 0
 
     def __post_init__(self) -> None:
         if self.capacidade < 0:
             raise ValueError(
                 f"pavimento {self.nome!r}: capacidade não pode ser negativa"
             )
+        if self.capacidade_especializada < 0:
+            raise ValueError(
+                f"pavimento {self.nome!r}: capacidade especializada não pode ser negativa"
+            )
+
+    @property
+    def capacidade_total(self) -> int:
+        """
+        Capacidade combinada (padrão + especializada) do pavimento.
+
+        Usada onde a distinção de pool não importa — relatórios e telas que
+        mostram "a capacidade do pavimento inteiro" (equilíbrio proporcional
+        geral, por exemplo). O motor de alocação, que PRECISA da distinção,
+        nunca usa esta property — ele lê `capacidade` e `capacidade_especializada`
+        separadamente (ver `heuristica.py`).
+        """
+        return self.capacidade + self.capacidade_especializada
+
+
+# ---------------------------------------------------------------------------
+# Salas especializadas — reserva rígida, não pool compartilhado
+# ---------------------------------------------------------------------------
+#
+# Cada clínica pertence a um "pool" de capacidade dentro de cada pavimento:
+# "padrao" (o caso comum) ou "especializada" (quando `precisa_sala_especializada`
+# é True). Os dois pools nunca se misturam — uma clínica comum jamais ocupa uma
+# especializada, mesmo com a padrão cheia, e vice-versa. Estas duas funções são
+# o ponto único de tradução clínica/pavimento → pool, usado pelo motor
+# (heuristica.py) para não espalhar esse `if` por toda parte.
+
+
+def pool_da_clinica(clinica: Clinica) -> str:
+    """"especializada" se a clínica exige sala especializada; "padrao" senão."""
+    return "especializada" if clinica.precisa_sala_especializada else "padrao"
+
+
+def capacidade_do_pool(pavimento: Pavimento, pool: str) -> int:
+    """Capacidade do pavimento no pool informado ("padrao" ou "especializada")."""
+    return pavimento.capacidade_especializada if pool == "especializada" else pavimento.capacidade
 
 
 # Tipos de restrição (tabela `restricao`, seção 5)

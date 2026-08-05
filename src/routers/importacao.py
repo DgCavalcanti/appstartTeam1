@@ -320,6 +320,15 @@ async def _pavimentos(
             )
 
     try:
+        # `capacidade` aqui é só o pool PADRÃO (padrao_1est/padrao_2est) — não
+        # soma mais as estações especializadas, que ficam isoladas no campo
+        # `capacidade_especializada`. Antes da feature de sala especializada
+        # tudo entrava na mesma conta; agora misturar os dois infla a
+        # capacidade "padrão" com estações que são reservadas. Nesta prévia
+        # (antes de o cenário ser salvo) ainda não existe marcação de
+        # `precisa_sala_especializada` por clínica — isso só é editável na
+        # etapa 2 de um cenário já salvo — então todas as clínicas aqui
+        # entram com o default `False` (`Clinica` do domínio já cobre isso).
         pavimentos = tuple(
             Pavimento(
                 id=i,
@@ -333,6 +342,8 @@ async def _pavimentos(
                 capacidade=capacidade_em_estacoes(
                     padrao_1est=int(entrada.get("padrao_1est", 0)),
                     padrao_2est=int(entrada.get("padrao_2est", 0)),
+                ),
+                capacidade_especializada=capacidade_em_estacoes(
                     esp_1est=int(entrada.get("esp_1est", 0)),
                     esp_2est=int(entrada.get("esp_2est", 0)),
                 ),

@@ -179,6 +179,29 @@ class TestProcessoService:
         assert depois[2] == PREENCHIDA
         assert depois[5] == DESATUALIZADA
 
+    def test_confirmar_sem_alteracao_nao_desatualiza_a_alocacao(self):
+        """
+        Contraste direto com `test_alterar_grades_desatualiza_a_alocacao`: o
+        botão "marcar etapa como preenchida, sem alterar nada" não pode ter o
+        mesmo efeito colateral de uma edição real. Regressão do bug em que o
+        endpoint de confirmação reaproveitava `registrar_alteracao()` e
+        acabava marcando a execução (5) como desatualizada mesmo sem nenhum
+        dado ter mudado.
+        """
+        async def rodar(sessao):
+            cenario = await montar_cenario(sessao, com_resultado=True)
+            antes = status_das_etapas(cenario)
+
+            await ProcessoService(sessao).confirmar_sem_alteracao(cenario, 2)
+            return antes, status_das_etapas(cenario)
+
+        antes, depois = executar(rodar)
+        assert antes[5] == PREENCHIDA
+        assert depois[2] == PREENCHIDA
+        assert depois[5] == PREENCHIDA, (
+            "confirmar uma etapa sem editar nada não pode desatualizar a execução"
+        )
+
     def test_o_que_nunca_foi_preenchido_continua_pendente(self):
         async def rodar(sessao):
             cenario = await montar_cenario(sessao)  # sem rodar o motor
@@ -401,6 +424,49 @@ class TestGradesService:
             cenario = await montar_cenario(sessao)
             with pytest.raises(ValueError, match="não pertence"):
                 await GradesService(sessao).definir_participacao(cenario, 9999, False)
+
+        executar(rodar)
+
+    def test_le_a_planilha_inclui_precisa_sala_especializada(self):
+        # Toda unidade nasce sem exigir sala especializada — comportamento
+        # anterior à feature preservado até o gestor marcar manualmente.
+        async def rodar(sessao):
+            cenario = await montar_cenario(sessao)
+            return GradesService(sessao).ler(cenario)
+
+        linhas = executar(rodar)
+        assert all(l["precisa_sala_especializada"] is False for l in linhas)
+
+    def test_definir_sala_especializada_marca_e_desmarca(self):
+        async def rodar(sessao):
+            cenario = await montar_cenario(sessao)
+            servico = GradesService(sessao)
+            unidade = cenario.unidades[0]
+            await servico.definir_sala_especializada(cenario, unidade.id, True)
+            depois_marcar = unidade.precisa_sala_especializada
+            await servico.definir_sala_especializada(cenario, unidade.id, False)
+            depois_desmarcar = unidade.precisa_sala_especializada
+            return depois_marcar, depois_desmarcar
+
+        marcado, desmarcado = executar(rodar)
+        assert marcado is True
+        assert desmarcado is False
+
+    def test_definir_sala_especializada_desatualiza_a_alocacao(self):
+        async def rodar(sessao):
+            cenario = await montar_cenario(sessao, com_resultado=True)
+            await GradesService(sessao).definir_sala_especializada(
+                cenario, cenario.unidades[0].id, True
+            )
+            return status_das_etapas(cenario)
+
+        assert executar(rodar)[5] == DESATUALIZADA
+
+    def test_definir_sala_especializada_unidade_de_outro_cenario(self):
+        async def rodar(sessao):
+            cenario = await montar_cenario(sessao)
+            with pytest.raises(ValueError, match="não pertence"):
+                await GradesService(sessao).definir_sala_especializada(cenario, 9999, True)
 
         executar(rodar)
 
@@ -667,6 +733,53 @@ class TestAlocacaoService:
                 await AlocacaoService(sessao).executar(cenario)
 
         executar(rodar)
+
+    def test_montar_entrada_propaga_precisa_sala_especializada(self):
+        # A marcação da etapa 2 (`precisa_sala_especializada` na unidade) tem
+        # que chegar ao domínio (`Clinica.precisa_sala_especializada`) e à
+        # capacidade especializada do pavimento (`esp_1est`/`esp_2est`) — sem
+        # isso o motor não tem como rotear a clínica para o pool certo.
+        async def rodar(sessao):
+            pico = indice_turno("segunda", "manha")
+            clinicas = (Clinica(id=1, nome="RESSONANCIA", demanda=demanda_em([pico], 2)),)
+            slots = (GradeSlot("Dr. Res", "RESSONANCIA", "segunda", "manha"),)
+            demandas = (GradeDemanda("RESSONANCIA", "segunda", "manha", 2),)
+            pavimentos = (
+                # ZERO estações padrão, 2 especializadas: se a marcação de
+                # `precisa_sala_especializada` não chegasse até `Clinica` (o
+                # ponto que este teste verifica), o motor trataria a clínica
+                # como comum, ela cairia no pool padrão (capacidade 0) e toda
+                # a demanda viraria sobra.
+                PavimentoEntrada(bloco="Bloco A", nome="Térreo", esp_1est=2),
+            )
+
+            repo = AlocacaoRepository(sessao)
+            cenario = await repo.criar(
+                nome="Especializada",
+                clinicas=clinicas,
+                slots=slots,
+                demandas=demandas,
+                pavimentos=pavimentos,
+                resultado=None,
+            )
+            cenario_id = cenario.id
+            await sessao.commit()
+            sessao.expunge_all()
+            cenario = await repo.obter(cenario_id)
+
+            await GradesService(sessao).definir_sala_especializada(
+                cenario, cenario.unidades[0].id, True
+            )
+            resultado = await AlocacaoService(sessao).executar(cenario)
+            return resultado.total_alocado, resultado.total_nao_alocado
+
+        alocado, sobra = executar(rodar)
+        # A demanda só existe no turno "pico" (2 estações). Com pool padrão
+        # zerado, só cabe se a marcação realmente propagou até
+        # `Clinica.precisa_sala_especializada` e o motor a roteou para o pool
+        # especializado (2 estações).
+        assert alocado == 2
+        assert sobra == 0
 
     def test_executar_marca_a_etapa_5(self):
         async def rodar(sessao):
